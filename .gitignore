@@ -11,3 +11,8 @@ __pycache__/
 .DS_Store
 *.log
 data/
+
+# Knowledge-base validation runtime files
+**/upload_manifest.json
+**/reports/
+/tools/zhihu-kb-test/articles/
