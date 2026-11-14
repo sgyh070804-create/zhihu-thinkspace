@@ -15,6 +15,14 @@ load_dotenv(PROJECT_ROOT / ".env")
 # 真实密钥一律不进源码：Access Secret 也只放 .env（已被 .gitignore 忽略）。
 
 
+def _cred_env(name: str) -> str:
+    """读取凭证类配置；尖括号占位符（如 <待分配>）视为未配置。"""
+    value = os.environ.get(name, "").strip()
+    if value.startswith("<") and value.endswith(">"):
+        return ""
+    return value
+
+
 def _bool_env(name: str, default: bool) -> bool:
     value = os.environ.get(name)
     if value is None:
@@ -40,9 +48,9 @@ class Settings:
     def from_env(cls) -> "Settings":
         api_url = os.environ.get("THINKSPACE_API_URL", "http://localhost:8000").rstrip("/")
         return cls(
-            access_secret=os.environ.get("ZHIHU_ACCESS_SECRET", "").strip(),
-            oauth_app_id=os.environ.get("ZHIHU_OAUTH_APP_ID", "").strip(),
-            oauth_app_key=os.environ.get("ZHIHU_OAUTH_APP_KEY", "").strip(),
+            access_secret=_cred_env("ZHIHU_ACCESS_SECRET"),
+            oauth_app_id=_cred_env("ZHIHU_OAUTH_APP_ID"),
+            oauth_app_key=_cred_env("ZHIHU_OAUTH_APP_KEY"),
             oauth_redirect_uri=os.environ.get(
                 "ZHIHU_OAUTH_REDIRECT_URI", f"{api_url}/api/auth/zhihu/callback"
             ),
