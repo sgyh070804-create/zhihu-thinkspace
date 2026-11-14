@@ -89,3 +89,11 @@ docs/       项目计划
 - [组件接入说明与 API](packages/thought-bubbles/README.md)
 - 测试：`node packages/thought-bubbles/tests/physics.cjs`
 
+
+## 长桌讨论室（前端首版）
+
+独立 2.5D 讨论原型位于 [`packages/debate-room`](packages/debate-room)：刘看山参考角色与用户同桌、12 种实时关节动作、头顶文字气泡与本地发言接替。演示内容不连接 AI 服务。
+
+- [启动与接入说明](packages/debate-room/README.md)
+- [实际测试截图与验证限制](docs/debate-room/README.md)
+- 测试：`npm --prefix packages/debate-room test`

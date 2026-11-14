@@ -1,0 +1,7 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {Spring,DebateEngine,topics} from '../engine.mjs';
+test('spring keeps pose continuous and converges after target changes',()=>{const s=new Spring(0);s.step(1,1/120);assert(s.value>0&&s.value<.05);for(let i=0;i<600;i++)s.step(1,1/120);assert(Math.abs(s.value-1)<.0001);const before=s.value;s.step(-1,1/120);assert(Math.abs(s.value-before)<.05);});
+test('paused discussion holds message, resume completes a smooth handoff',()=>{const events=[];const e=new DebateEngine((kind,m)=>events.push([kind,m?.role]));e.reset();e.tick(.2);const count=e.current.visible;e.paused=true;for(let i=0;i<100;i++)e.tick(.1);assert.equal(e.current.visible,count);e.paused=false;for(let i=0;i<500;i++)e.tick(.02);assert(e.messages.length>=2);assert(events.some(x=>x[0]==='settle'));assert.equal(e.messages[0].done,true);});
+test('user participates in the same discussion and markup stays plain text',()=>{const e=new DebateEngine();e.reset();assert.equal(e.submit('   '),false);assert(e.submit('<img src=x onerror=alert(1)> 我的观点'));assert.equal(e.current.role,'user');assert(e.current.text.includes('<img'));e.tick(10);assert.equal(e.messages[0].done,true);});
+test('topic reset and role invitation have valid state',()=>{const e=new DebateEngine();e.reset(1);assert.equal(e.topic,1);assert.equal(e.current.text,topics[1].turns[0][2]);assert.equal(e.invite('missing'),false);assert(e.invite('skeptic'));assert.equal(e.current.role,'skeptic');e.reset(2);assert.equal(e.messages.length,1);});
