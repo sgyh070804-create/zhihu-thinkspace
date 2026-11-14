@@ -80,3 +80,12 @@ docs/       项目计划
 ```
 
 真实数据库默认写入 `data/thinkspace.db`，该目录已被 Git 忽略。密钥、OAuth token、真实用户数据不得提交到 Git。
+
+## 灵感泡泡动画组件（首版）
+
+独立动画组件位于 [`packages/thought-bubbles`](packages/thought-bubbles)，包含透明薄膜材质、连续膜节点形变、拖动融合和内景阅读。无需 OAuth 即可运行演示；现有网页接入由业务层完成。
+
+- [运行方式、实际测试截图与验证范围](docs/bubble-animation/README.md)
+- [组件接入说明与 API](packages/thought-bubbles/README.md)
+- 测试：`node packages/thought-bubbles/tests/physics.cjs`
+

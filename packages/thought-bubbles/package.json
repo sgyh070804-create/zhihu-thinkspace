@@ -1,0 +1,16 @@
+{
+  "name": "@thinkspace/thought-bubbles",
+  "version": "0.1.0",
+  "description": "Translucent floating thought bubbles, drag and liquid fusion",
+  "main": "dist/thought-bubbles.js",
+  "types": "dist/thought-bubbles.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "PHYSICS-NOTES.md"
+  ],
+  "license": "UNLICENSED",
+  "scripts": {
+    "test": "node tests/physics.cjs"
+  }
+}
