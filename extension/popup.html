@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>连接 ThinkSpace</title>
+    <style>
+      body { width: 340px; margin: 0; padding: 20px; color: #17211b; background: #f7f9f5; font-family: "Microsoft YaHei", sans-serif; }
+      h1 { margin: 0 0 8px; font-size: 20px; }
+      p { color: #69736c; font-size: 12px; line-height: 1.6; }
+      label { display: block; margin-top: 14px; font-size: 12px; font-weight: 700; }
+      input, textarea { box-sizing: border-box; width: 100%; margin-top: 6px; padding: 10px; border: 1px solid #d8dfd6; border-radius: 8px; background: white; font: inherit; font-size: 12px; }
+      textarea { min-height: 76px; resize: vertical; }
+      button { width: 100%; margin-top: 14px; padding: 10px; border: 0; border-radius: 9px; background: #176b4d; color: white; font-weight: 700; cursor: pointer; }
+      #status { min-height: 18px; color: #176b4d; }
+      a { display: block; margin-top: 12px; color: #176b4d; font-size: 12px; text-align: center; }
+    </style>
+  </head>
+  <body>
+    <h1>ThinkSpace 灵感泡泡</h1>
+    <p>先在 ThinkSpace 网页点击“连接阅读扩展”生成一次性配对码，再粘贴到这里。扩展不会读取知乎 Cookie。</p>
+    <label for="api-base">本地服务地址</label>
+    <input id="api-base" value="http://localhost:8000" autocomplete="off" />
+    <label for="pair-code">一次性配对码</label>
+    <textarea id="pair-code" placeholder="粘贴 5 分钟内生成的配对码"></textarea>
+    <button id="connect">连接 ThinkSpace</button>
+    <p id="status" role="status"></p>
+    <a href="http://localhost:5173" target="_blank">打开 ThinkSpace 网页</a>
+    <script src="popup.js"></script>
+  </body>
+</html>

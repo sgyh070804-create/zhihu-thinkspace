@@ -1,0 +1,30 @@
+:host { all: initial; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+.ts-launcher { position: fixed; right: 24px; bottom: 26px; z-index: 2147483646; display: flex; align-items: center; gap: 8px; height: 52px; padding: 0 18px; border: 1px solid #ffffff40; border-radius: 28px; background: #176b4d; color: white; box-shadow: 0 10px 35px #173a2c40; font: 600 14px "PingFang SC", "Microsoft YaHei", sans-serif; cursor: pointer; }
+.ts-launcher:hover { transform: translateY(-2px); }
+.ts-dot { width: 10px; height: 10px; border-radius: 50%; background: #d9f275; }
+.ts-count { display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: white; color: #176b4d; font-size: 11px; }
+.ts-panel { position: fixed; right: 24px; bottom: 90px; z-index: 2147483646; width: min(380px, calc(100vw - 28px)); max-height: min(680px, calc(100vh - 120px)); overflow: auto; border: 1px solid #dce4dc; border-radius: 20px; background: #fff; color: #17211b; box-shadow: 0 20px 70px #12251b35; font: 14px/1.6 "PingFang SC", "Microsoft YaHei", sans-serif; }
+.ts-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid #e6ebe4; }
+.ts-brand { color: #176b4d; font-size: 12px; font-weight: 800; letter-spacing: .08em; }
+.ts-close { width: 28px; height: 28px; border: 0; border-radius: 50%; background: #f0f3ee; color: #59655d; cursor: pointer; }
+.ts-body { padding: 18px; }
+.ts-source { margin-bottom: 16px; padding: 12px; border-radius: 12px; background: #f3f7f1; }
+.ts-source strong { display: block; max-height: 48px; overflow: hidden; font-size: 14px; }
+.ts-source span { display: block; margin-top: 4px; color: #738078; font-size: 11px; }
+.ts-label { display: block; margin: 13px 0 6px; color: #59655d; font-size: 12px; font-weight: 700; }
+.ts-quote { max-height: 110px; overflow: auto; margin: 0; padding: 10px 12px; border-left: 3px solid #9bc4aa; border-radius: 0 8px 8px 0; background: #f7f9f5; color: #59655d; font-size: 12px; white-space: pre-wrap; }
+.ts-quote-button { margin-top: 6px; padding: 0; border: 0; background: none; color: #176b4d; font-size: 11px; cursor: pointer; }
+.ts-textarea { width: 100%; min-height: 118px; resize: vertical; padding: 12px; border: 1px solid #d9e1d7; border-radius: 12px; outline: none; color: #17211b; background: white; font: 14px/1.7 "PingFang SC", "Microsoft YaHei", sans-serif; }
+.ts-textarea:focus { border-color: #559579; box-shadow: 0 0 0 3px #e6f2ea; }
+.ts-save { width: 100%; margin-top: 12px; padding: 11px; border: 0; border-radius: 11px; background: #176b4d; color: white; font-weight: 700; cursor: pointer; }
+.ts-save:disabled { opacity: .55; cursor: wait; }
+.ts-status { min-height: 20px; margin: 8px 0 0; color: #176b4d; font-size: 12px; }
+.ts-status.error { color: #a33c32; }
+.ts-related { margin-top: 18px; padding-top: 14px; border-top: 1px solid #e6ebe4; }
+.ts-related h3 { margin: 0 0 8px; font-size: 12px; }
+.ts-note { margin-top: 8px; padding: 10px 12px; border-radius: 10px; background: #f7f9f5; font-size: 12px; white-space: pre-wrap; }
+.ts-note time { display: block; margin-top: 4px; color: #859087; font-size: 10px; }
+.ts-web { display: block; margin-top: 14px; color: #176b4d; font-size: 12px; text-align: center; text-decoration: none; }
+@media (max-width: 600px) { .ts-launcher { right: 14px; bottom: 18px; } .ts-panel { right: 14px; bottom: 82px; } }

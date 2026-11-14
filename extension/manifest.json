@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "ThinkSpace 灵感泡泡",
+  "version": "0.1.0",
+  "description": "在知乎阅读时记录想法、选中文字和文章来源。",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "连接 ThinkSpace",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.zhihu.com/question/*/answer/*",
+        "https://zhuanlan.zhihu.com/p/*",
+        "https://www.zhihu.com/pin/*",
+        "https://www.zhihu.com/zvideo/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["content.css"],
+      "matches": [
+        "https://www.zhihu.com/*",
+        "https://zhuanlan.zhihu.com/*"
+      ]
+    }
+  ]
+}

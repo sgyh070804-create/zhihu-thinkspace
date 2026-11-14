@@ -8,9 +8,11 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .vite/
+*.tsbuildinfo
 .DS_Store
 *.log
 data/
+.tmp/
 
 # Knowledge-base validation runtime files
 **/upload_manifest.json
