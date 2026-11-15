@@ -98,15 +98,17 @@ docs/       项目计划
 - [实际测试截图与验证限制](docs/debate-room/README.md)
 - 测试：`npm --prefix packages/debate-room test`
 
-## 三维角色与冷色资源包（0.2.2）
+## 三维角色与冷色资源包（0.2.3）
 
 长桌讨论室已接入刘看山三维骨骼模型，配套黑白气泡和冷灰蓝主题。
 
 - [当前界面、截图和接入文档](docs/debate-room/README.md)
 - [模型原件、参考和建模源码](assets/kanshan/README.md)
-- [完整前端素材 ZIP](releases/thinkspace-resources-v0.2.2.zip)
+- [完整前端素材 ZIP](releases/thinkspace-resources-v0.2.3.zip)
 - 自动测试：`npm --prefix packages/debate-room test`
 
 0.2.1 修复模型动作幅度被二次缩小、手势遮挡和低帧率时计时变慢。动作试演会平滑拉近角色。9 项自动检查与实际截图见讨论室验证记录；内嵌预览采样不作为流畅度验收。
 
 0.2.2 修正抬手时手肘向内折：左右肘采用实时外侧方向约束，保持臂长。10 项检查通过，包含能复现旧错误的动作过渡检查。
+
+0.2.3 在正式讨论中默认自然垂手，发言手势短暂抬起后收回，暂停也会收手。取消自动悬空写字和举杯；完整动作保留在试演。11 项检查通过。

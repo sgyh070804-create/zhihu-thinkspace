@@ -91,7 +91,7 @@ function solveElbow(actor,label){
  aimSegment(upper,lower,elbowTarget);aimSegment(lower,hand,handTarget);
 }
 
-export function animateKanshan(actor,s,t,gesture,dt){
+export function animateKanshan(actor,s,t,gesture,dt,allowProps=true){
  if(!actor.loaded)return;
  actor.model.position.y=Math.sin(t*1.7+actor.seed)*.016;
  rotate(actor,'body',s.lean,s.bodyYaw,Math.sin(t*.9+actor.seed)*.006);
@@ -102,7 +102,7 @@ export function animateKanshan(actor,s,t,gesture,dt){
   solveElbow(actor,label);
   rotate(actor,'hand.'+label,0,0,s[prefix+'wZ']);
  }
- const prop=gesture==='sip'||gesture==='write',amount=actor.propBlend.step(prop?1:0,dt);
- actor.cup.visible=gesture==='sip'&&amount>.01;actor.pencil.visible=gesture==='write'&&amount>.01;
+ const prop=allowProps&&(gesture==='sip'||gesture==='write'),amount=actor.propBlend.step(prop?1:0,dt);
+ actor.cup.visible=allowProps&&gesture==='sip'&&amount>.01;actor.pencil.visible=allowProps&&gesture==='write'&&amount>.01;
  actor.cup.scale.setScalar(Math.max(.001,amount));actor.pencil.scale.setScalar(Math.max(.001,amount));
 }

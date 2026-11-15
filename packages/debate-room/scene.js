@@ -1,4 +1,5 @@
 import * as THREE from './vendor/three.module.min.js';
+import {settleDiscussionArms} from './motion-policy.mjs';
 import {frameDelta} from './timing.mjs';
 import {Spring} from './engine.mjs';
 import {loadKanshan,makeKanshan,attachKanshan,animateKanshan,kanshanPose} from './kanshan-character.js';
@@ -75,7 +76,8 @@ export class DebateScene{
  makeTableObjects(){const g=new THREE.Group();g.position.set(-1.9,1.63,.1);this.scene.add(g);mesh(rounded(.85,.55,.1,.02),material('#8196af'),g,0,0,0);const book=mesh(rounded(.8,.5,.1,.02),material('#abbacf'),g,.06,.11,.03);book.rotation.y=.13;mesh(rounded(.7,.42,.018,.02),materials.paper,g,-.03,.22,0);const vase=mesh(new THREE.CylinderGeometry(.15,.21,.34,20),material('#dce3ed'),this.scene,2.3,1.80,0);for(let i=0;i<4;i++){const stem=mesh(new THREE.CylinderGeometry(.008,.008,.42,6),material('#7c929a'),this.scene,2.3+Math.sin(i)*.1,2.1,Math.cos(i)*.08);stem.rotation.z=Math.sin(i)*.3;const leaf=ball(this.scene,material('#99abb7'),2.3+Math.sin(i)*.17,2.29,Math.cos(i)*.11,.08,.18,.025);leaf.rotation.z=Math.sin(i)*.7;}}
  makePlant(x,z,scale=1){const g=new THREE.Group();g.position.set(x,0,z);g.scale.setScalar(scale);this.scene.add(g);mesh(new THREE.CylinderGeometry(.38,.28,.6,24),material('#d8e0e9'),g,0,.3,0);for(let i=0;i<9;i++){const a=i*2.399,h=.8+(i%3)*.3;const stem=mesh(new THREE.CylinderGeometry(.012,.012,h,6),material('#718a94'),g,Math.cos(a)*.1,h*.5+.5,Math.sin(a)*.1);stem.rotation.z=Math.cos(a)*.25;const leaf=ball(g,material(i%2?'#b2c0cb':'#92a8b5'),Math.cos(a)*.27,h+.4,Math.sin(a)*.27,.17,.39,.035);leaf.rotation.z=-Math.cos(a)*.65;leaf.rotation.y=a;}}
  resize(){this.width=this.canvas.parentElement.clientWidth;this.height=this.canvas.parentElement.clientHeight;this.renderHeight=Math.max(180,this.height-(this.width<680?65:95));const aspect=this.width/Math.max(1,this.renderHeight);const h=Math.max(8.2,15.5/aspect);this.camera.left=-h*aspect/2;this.camera.right=h*aspect/2;this.camera.top=h/2;this.camera.bottom=-h/2;this.camera.updateProjectionMatrix();if(aspect<1.25){this.camera.position.set(3.7,12,18);this.camera.lookAt(0,2.1,0);}else{this.camera.position.set(5,9.2,16);this.camera.lookAt(0,2.4,0);}this.renderer.setSize(this.width,this.height,false);this.renderer.setViewport(0,0,this.width,this.renderHeight);}
- setSpeaker(role,gesture){this.active=role;this.actors.forEach(a=>a.gesture=a.role.id===role?gesture:'listen');}
+ setSpeaker(role,gesture){this.active=role;this.actors.forEach(a=>{a.gesture=a.role.id===role?gesture:'listen';a.gestureElapsed=0;});}
+ setPaused(paused){this.discussionPaused=paused;}
  preview(role,gesture,focus=false){this.previewFocus=focus?role:null;this.actors.forEach(a=>a.manual=a.role.id===role?gesture:'listen');this.motionPreview=true;}
  stopPreview(){this.previewFocus=null;this.actors.forEach(a=>a.manual=null);this.motionPreview=false;}
  updateCamera(dt){
@@ -86,15 +88,17 @@ export class DebateScene{
   this.camera.position.lerp(target,blend);this.cameraAim??=new V(0,narrow?2.1:2.4,0);this.cameraAim.lerp(center,blend);
   this.camera.zoom+=(zoom-this.camera.zoom)*blend;this.camera.lookAt(this.cameraAim);this.camera.updateProjectionMatrix();this.camera.updateMatrixWorld(true);
  }
- updateActor(a,dt,t){const speaking=a.role.id===this.active&&!this.motionPreview;let gesture=a.manual||a.gesture;const idleCycle=Math.floor((t+a.seed)/8)%6;if(!speaking&&!a.manual){gesture=['listen','think','nod','listen','write','listen'][idleCycle];}
+ updateActor(a,dt,t){const speaking=a.role.id===this.active&&!this.motionPreview&&!this.discussionPaused&&this.ready;let gesture=a.manual||a.gesture;const idleCycle=Math.floor((t+a.seed)/8)%6;if(!speaking&&!a.manual){gesture=['listen','listen','nod','listen','think','listen'][idleCycle];}
   const motionTime=this.reduced?0:t+a.seed;const p=(a.kanshan?kanshanPose:pose)(gesture,motionTime,speaking),active=this.actors.find(x=>x.role.id===this.active);let look=0;if(active&&active!==a){const delta=active.root.position.clone().sub(a.root.position);const local=delta.applyAxisAngle(new V(0,1,0),-a.root.rotation.y);look=Math.max(-.42,Math.min(.42,Math.atan2(local.x,local.z)*.22));}
+  a.gestureElapsed=(a.gestureElapsed||0)+(speaking?dt:0);
+  if(!a.manual)settleDiscussionArms(p,gesture,a.gestureElapsed,speaking);
   p.headYaw+=look;const step=dt;
   for(const k in p)a.springs[k].step(p[k],step);const s=Object.fromEntries(Object.entries(a.springs).map(([k,v])=>[k,v.value]));
-  if(a.kanshan){animateKanshan(a,s,this.reduced?0:t,gesture,dt);}else{
+  if(a.kanshan){animateKanshan(a,s,this.reduced?0:t,gesture,dt,!!a.manual);}else{
   a.torso.rotation.set(s.lean,s.bodyYaw,Math.sin(t*.9+a.seed)*.008);a.torso.position.y=.54+Math.sin(t*1.7+a.seed)*.009;a.torso.scale.y=1+Math.sin(t*1.7+a.seed)*.005;a.head.rotation.set(s.headPitch,s.headYaw,s.headRoll);
   a.arms[0].shoulder.rotation.set(s.lsX,0,s.lsZ);a.arms[0].elbow.rotation.x=s.leX;a.arms[0].wrist.rotation.z=s.lwZ;a.arms[1].shoulder.rotation.set(s.rsX,0,s.rsZ);a.arms[1].elbow.rotation.x=s.reX;a.arms[1].wrist.rotation.z=s.rwZ;
   const blinkPhase=(t+a.seed*2)%5.1,blink=blinkPhase<.16?Math.pow(Math.sin(blinkPhase/.16*Math.PI),2):0;a.eyes.forEach(e=>e.scale.y=.048*(1-.93*blink));a.mouth.scale.y=.012+(speaking?.055*Math.pow(Math.sin(t*8.5),2):0);}
-  if(!a.kanshan){a.cup.visible=gesture==='sip';a.pencil.visible=gesture==='write';}
+  if(!a.kanshan){a.cup.visible=!!a.manual&&gesture==='sip';a.pencil.visible=!!a.manual&&gesture==='write';}
   a.root.updateMatrixWorld(true);a.anchor.set(0,a.kanshan?3.12:2.22,0).applyMatrix4(a.root.matrixWorld).project(this.camera);this.onProject(a.role.id,(a.anchor.x*.5+.5)*this.width,(-a.anchor.y*.5+.5)*this.renderHeight+(this.height-this.renderHeight),this.width,this.height,!this.previewFocus);
  }
  loop(now){if(!this.running)return;this.raf=requestAnimationFrame(this.loop);const raw=(now-(this.last||now))/1000;this.last=now;if(document.hidden)return;const dt=frameDelta(raw);this.time+=dt;this.updateCamera(dt);this.frame++;if(raw>0&&this.ready)this.frames.push(raw*1000);if(this.frames.length>600)this.frames.shift();this.actors.forEach(a=>this.updateActor(a,dt,this.time));const active=this.actors.find(a=>a.role.id===this.active);if(active){this.ring.position.x=active.root.position.x;this.ring.position.z=active.root.position.z;this.ring.material.opacity=.35+Math.sin(this.time*2)*.12;}

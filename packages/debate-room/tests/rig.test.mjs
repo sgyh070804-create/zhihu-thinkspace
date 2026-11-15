@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {settleDiscussionArms} from '../motion-policy.mjs';
 import * as THREE from '../vendor/three.module.min.js';
 
 // Resolve browser import-map paths for Node without altering the modules' behavior.
@@ -78,4 +79,53 @@ test('both elbows stay on their outward pole without stretching through all gest
   }
  }
  console.log('minimum outward elbow offset:',minOutside.toFixed(4));
+});
+
+// Measure the actual skinned hand vertices after production speech/idle motion.
+// Raised preview poses must settle behind and below the desk, not hover over it.
+test('production hands settle beside the body after speech beats and when paused',async()=>{
+ const bytes=readFileSync(new URL('assets/kanshan/kanshan-runtime.glb',root));
+ const gltf=await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
+ const a=makeKanshan(new THREE.Scene(),{id:'a'},[0,-2.35]);attachKanshan(a,gltf);a.seed=0;
+ const samples=[];a.model.traverse(mesh=>{
+  if(!mesh.isSkinnedMesh)return;
+  const joints=mesh.geometry.attributes.skinIndex,weights=mesh.geometry.attributes.skinWeight,indices=[];
+  for(let i=0;i<joints.count;i++)for(let j=0;j<4;j++){
+   const bone=mesh.skeleton.bones[joints.getComponent(i,j)],name=bone?.userData.name||bone?.name||'';
+   if(name.startsWith('hand')&&weights.getComponent(i,j)>.95){indices.push(i);break;}
+  }
+  if(indices.length)samples.push({mesh,indices});
+ });
+ assert.equal(samples.length,2);
+ const assertRest=label=>{
+  a.root.updateMatrixWorld(true);const v=new THREE.Vector3();
+  for(const {mesh,indices} of samples){
+   mesh.skeleton.update();
+   for(const i of indices){mesh.getVertexPosition(i,v).applyMatrix4(mesh.matrixWorld);
+    assert.ok(v.y<1.605,label+' hand remains above desk');
+    assert.ok(v.z<-1.735,label+' hand extends into the desk footprint');
+   }
+  }
+ };
+ for(const gesture of ['listen','explain','question','open','point','think','nod','disagree','wave','write','sip','celebrate']){
+  for(let frame=0;frame<240;frame++){
+   const elapsed=frame/60,p=settleDiscussionArms(kanshanPose(gesture,elapsed,true),gesture,elapsed,true),state={};
+   for(const key in p)state[key]=a.springs[key].step(p[key],1/60);
+   animateKanshan(a,state,elapsed,gesture,1/60,false);
+   if(frame===60&&['explain','question','open','point','disagree','wave','celebrate'].includes(gesture)){
+    a.root.updateMatrixWorld(true);
+    const high=Math.max(...['L','R'].map(label=>a.bones.get('hand.'+label).bone.getWorldPosition(new THREE.Vector3()).y));
+    assert.ok(high>1.7,gesture+' lost its brief speaking emphasis');
+   }
+  }
+  assertRest(gesture);assert.equal(a.cup.visible,false);assert.equal(a.pencil.visible,false);
+ }
+ // Pause while a full gesture is held: it must also release to rest.
+ const raised=kanshanPose('celebrate',0);for(const key in raised){a.springs[key].value=raised[key];a.springs[key].velocity=0;}
+ for(let frame=0;frame<120;frame++){
+  const p=settleDiscussionArms(kanshanPose('celebrate',frame/60), 'celebrate',.8,false),state={};
+  for(const key in p)state[key]=a.springs[key].step(p[key],1/60);
+  animateKanshan(a,state,frame/60,'celebrate',1/60,false);
+ }
+ assertRest('paused');
 });
