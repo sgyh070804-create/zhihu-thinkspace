@@ -48,3 +48,34 @@ test('seated wave/open/celebration hands clear the desk and read at preview size
  assert.ok(excursion>7,'wave has a visible lateral sweep, not only wrist tremor');
  console.log('wave screen excursion at 500px:',excursion.toFixed(1),'px');
 });
+
+// Check the signed elbow side throughout spring-driven transitions, not only
+// at hand-picked poses. An elbow must bulge away from the torso on both arms.
+test('both elbows stay on their outward pole without stretching through all gesture transitions',async()=>{
+ const bytes=readFileSync(new URL('assets/kanshan/kanshan-runtime.glb',root));
+ const gltf=await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
+ const a=makeKanshan(new THREE.Scene(),{id:'a'},[0,-2.35]);attachKanshan(a,gltf);a.seed=0;
+ const lengths=new Map();
+ a.root.updateMatrixWorld(true);
+ const point=name=>a.bones.get(name).bone.getWorldPosition(new THREE.Vector3());
+ for(const label of ['L','R'])lengths.set(label,[point('upper_arm.'+label).distanceTo(point('forearm.'+label)),point('forearm.'+label).distanceTo(point('hand.'+label))]);
+ let time=0,minOutside=Infinity;
+ for(const gesture of ['listen','celebrate','open','wave','question','think','point','explain','disagree','write','sip','nod','listen']){
+  for(let frame=0;frame<60;frame++){
+   time+=1/60;const target=kanshanPose(gesture,time,true),s={};
+   for(const key in target)s[key]=a.springs[key].step(target[key],1/60);
+   animateKanshan(a,s,time,gesture,1/60);a.root.updateMatrixWorld(true);
+   const body=a.bones.get('body'),rotation=body.bone.getWorldQuaternion(new THREE.Quaternion()).multiply(body.inverse);
+   for(const label of ['L','R']){
+    const shoulder=point('upper_arm.'+label),elbow=point('forearm.'+label),wrist=point('hand.'+label),line=wrist.clone().sub(shoulder).normalize();
+    const deviation=elbow.clone().sub(shoulder);deviation.addScaledVector(line,-deviation.dot(line));
+    const pole=new THREE.Vector3(label==='R'?1:-1,0,.18).applyQuaternion(rotation);
+    const outside=deviation.dot(pole);minOutside=Math.min(minOutside,outside);
+    assert.ok(outside>1e-5,gesture+' '+label+' elbow folded inward');
+    assert.ok(Math.abs(shoulder.distanceTo(elbow)-lengths.get(label)[0])<1e-5,'upper arm stretched');
+    assert.ok(Math.abs(elbow.distanceTo(wrist)-lengths.get(label)[1])<1e-5,'forearm stretched');
+   }
+  }
+ }
+ console.log('minimum outward elbow offset:',minOutside.toFixed(4));
+});

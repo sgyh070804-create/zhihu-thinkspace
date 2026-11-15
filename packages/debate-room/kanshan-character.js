@@ -55,6 +55,42 @@ function rotate(actor,name,x=0,y=0,z=0){
  const b=actor.bones.get(name);if(!b)return;
  delta.setFromEuler(euler.set(x,y,z));local.copy(b.inverse).multiply(delta).multiply(b.world);b.bone.quaternion.copy(b.rest).multiply(local);
 }
+// Resolve each elbow on the outside of its shoulder-to-wrist line. A fixed
+// Euler X hinge rotates its bend plane with the raised shoulder and can fold
+// inward. The two-bone solve keeps the animated wrist target and bone lengths.
+const shoulderPoint=new THREE.Vector3(),elbowPoint=new THREE.Vector3(),wristPoint=new THREE.Vector3();
+const axis=new THREE.Vector3(),pole=new THREE.Vector3(),bend=new THREE.Vector3(),elbowTarget=new THREE.Vector3();
+const fromDirection=new THREE.Vector3(),toDirection=new THREE.Vector3();
+const swing=new THREE.Quaternion(),worldRotation=new THREE.Quaternion(),parentRotation=new THREE.Quaternion(),bodyRotation=new THREE.Quaternion();
+function aimSegment(bone,child,target){
+ bone.getWorldPosition(elbowPoint);child.getWorldPosition(wristPoint);
+ fromDirection.copy(wristPoint).sub(elbowPoint).normalize();toDirection.copy(target).sub(elbowPoint).normalize();
+ swing.setFromUnitVectors(fromDirection,toDirection);
+ bone.getWorldQuaternion(worldRotation);worldRotation.premultiply(swing);
+ bone.parent.getWorldQuaternion(parentRotation).invert();bone.quaternion.copy(parentRotation).multiply(worldRotation).normalize();
+ bone.updateWorldMatrix(false,true);
+}
+function solveElbow(actor,label){
+ const upper=actor.bones.get('upper_arm.'+label).bone,lower=actor.bones.get('forearm.'+label).bone,hand=actor.bones.get('hand.'+label).bone;
+ upper.updateWorldMatrix(true,true);
+ upper.getWorldPosition(shoulderPoint);lower.getWorldPosition(elbowPoint);hand.getWorldPosition(wristPoint);
+ const upperLength=shoulderPoint.distanceTo(elbowPoint),lowerLength=elbowPoint.distanceTo(wristPoint);
+ axis.copy(wristPoint).sub(shoulderPoint);const distance=axis.length();if(distance<1e-6)return;axis.divideScalar(distance);
+ // Body-relative pole stays on the same side throughout gesture transitions.
+ const body=actor.bones.get('body');body.bone.getWorldQuaternion(bodyRotation).multiply(body.inverse);
+ pole.set(label==='R'?1:-1,0,.18).applyQuaternion(bodyRotation);
+ bend.copy(pole).addScaledVector(axis,-pole.dot(axis));
+ if(bend.lengthSq()<1e-8){bend.set(0,0,1).applyQuaternion(bodyRotation);bend.addScaledVector(axis,-bend.dot(axis));}
+ bend.normalize();
+ const reach=THREE.MathUtils.clamp(distance,Math.abs(upperLength-lowerLength)+.005,(upperLength+lowerLength)*.995);
+ const along=(upperLength*upperLength-lowerLength*lowerLength+reach*reach)/(2*reach);
+ const height=Math.sqrt(Math.max(0,upperLength*upperLength-along*along));
+ elbowTarget.copy(shoulderPoint).addScaledVector(axis,along).addScaledVector(bend,height);
+ // Copy targets: aimSegment reuses the world-position scratch vectors.
+ const handTarget=shoulderPoint.clone().addScaledVector(axis,reach);
+ aimSegment(upper,lower,elbowTarget);aimSegment(lower,hand,handTarget);
+}
+
 export function animateKanshan(actor,s,t,gesture,dt){
  if(!actor.loaded)return;
  actor.model.position.y=Math.sin(t*1.7+actor.seed)*.016;
@@ -63,6 +99,7 @@ export function animateKanshan(actor,s,t,gesture,dt){
  for(const [label,prefix] of [['L','l'],['R','r']]){
   rotate(actor,'upper_arm.'+label,s[prefix+'sX'],0,s[prefix+'sZ']);
   rotate(actor,'forearm.'+label,s[prefix+'eX'],0,0);
+  solveElbow(actor,label);
   rotate(actor,'hand.'+label,0,0,s[prefix+'wZ']);
  }
  const prop=gesture==='sip'||gesture==='write',amount=actor.propBlend.step(prop?1:0,dt);

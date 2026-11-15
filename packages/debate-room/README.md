@@ -1,6 +1,12 @@
-# ThinkSpace 长桌讨论室 · 0.2.1
+# ThinkSpace 长桌讨论室 · 0.2.2
 
 三位刘看山与用户同桌的前端讨论组件。当前版已接入用户确认的三维网格，使用原模型骨骼驱动头、身体、上臂、前臂和手；整体为冷灰蓝主题，角色气泡白底黑字，用户气泡黑底白字。
+
+## 0.2.2 手肘方向修正
+
+改用双骨骼实时解算，为左右肘分别设置随身体转动的外侧方向约束，修正抬手时向内折肘。优先保持原动作的手部目标和臂长；接近完全伸直时保留微小弯曲，避免弯曲方向翻转。输入姿态仍由弹簧连续过渡。
+
+新增自动检查覆盖 12 种动作及切换过程，验证双肘始终在肩—腕连线外侧，且上臂、前臂长度不变。关闭修复后，该检查能复现举手动作左肘内折。
 
 ## 0.2.1 动作修正
 
@@ -21,7 +27,7 @@ Three.js、GLTFLoader、SkeletonUtils 与 GLB 均已随包提供，不依赖 CDN
 - `assets/kanshan/kanshan-runtime.glb`：2.35 MB 的减面运行版，8 个网格、11 根骨骼、41,928 顶点、83,824 三角面；三位角色共享几何和材质，各自克隆独立骨骼。
 - `assets/kanshan/asset-info.json`：运行资源规格。
 - 仓库 [`assets/kanshan`](../../assets/kanshan)：压缩 Blender 可编辑原件、高精度 GLB、三视图、建模和减面源码、实际渲染与模型检查器。
-- 仓库 `releases/thinkspace-resources-v0.2.1.zip`：前端、完整素材、文档与验证截图组成的可下载资源包。
+- 仓库 `releases/thinkspace-resources-v0.2.2.zip`：前端、完整素材、文档与验证截图组成的可下载资源包。
 
 模型载入后才启动讨论与动画预热；资源失败会显示错误。角色动作使用阻尼弹簧连续过渡，映射到实际骨骼。12 个动作入口、暂停/速度/重新开始、三个示例话题、用户输入、角色邀请、记录及 Markdown 导出保留。角色外形按用户参考图重建，当前资源已获用户确认，并非官方生产原模。
 
@@ -42,6 +48,6 @@ window.debateRoom.dispose();
 
 ## 验证
 
-`npm test` 使用 Node.js 内置测试（无需 npm install）：讨论状态、弹簧连续性、用户参与、GLB 完整性、骨骼与蒙皮权重。详情见 [VALIDATION.md](VALIDATION.md)。新增实际 GLB 手部高度、屏幕位移和轮廓外检查，以及 1/15/30/60/144 FPS 时钟与弹簧收敛检查。最新动作截图为 `screenshots/10-motion-wave.png`、`11-motion-open.png`、`12-motion-celebrate.png`；此前截图保留。
+`npm test` 使用 Node.js 内置测试（无需 npm install）：讨论状态、弹簧连续性、用户参与、GLB 完整性、骨骼与蒙皮权重。详情见 [VALIDATION.md](VALIDATION.md)。新增实际 GLB 手部高度、屏幕位移和轮廓外检查，以及 1/15/30/60/144 FPS 时钟与弹簧收敛检查。最新肘部修正截图为 `screenshots/13-elbows-outward.png`、`14-elbow-wave.png`；此前截图保留。
 
 角色 IP 和参考素材权利归原权利方；Three.js MIT 许可见 `vendor/THREE-LICENSE.txt`。
