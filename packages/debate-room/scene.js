@@ -1,6 +1,7 @@
 import * as THREE from './vendor/three.module.min.js';
+import {frameDelta} from './timing.mjs';
 import {Spring} from './engine.mjs';
-import {loadKanshan,makeKanshan,attachKanshan,animateKanshan} from './kanshan-character.js';
+import {loadKanshan,makeKanshan,attachKanshan,animateKanshan,kanshanPose} from './kanshan-character.js';
 const V=THREE.Vector3;
 const sphere=new THREE.SphereGeometry(1,28,20),capsule=new THREE.CapsuleGeometry(1,1,5,12);
 const materials={white:new THREE.MeshStandardMaterial({color:0xfaf9f4,roughness:.83}),black:new THREE.MeshStandardMaterial({color:0x202522,roughness:.58}),nose:new THREE.MeshStandardMaterial({color:0x161b1a,roughness:.32}),skin:new THREE.MeshStandardMaterial({color:0xe8be9e,roughness:.82}),hair:new THREE.MeshStandardMaterial({color:0x303d4f,roughness:.95}),shirt:new THREE.MeshStandardMaterial({color:0x627b98,roughness:.94}),pants:new THREE.MeshStandardMaterial({color:0x48596f,roughness:.9}),paper:new THREE.MeshStandardMaterial({color:0xfdfcf3,roughness:.9})};
@@ -75,21 +76,28 @@ export class DebateScene{
  makePlant(x,z,scale=1){const g=new THREE.Group();g.position.set(x,0,z);g.scale.setScalar(scale);this.scene.add(g);mesh(new THREE.CylinderGeometry(.38,.28,.6,24),material('#d8e0e9'),g,0,.3,0);for(let i=0;i<9;i++){const a=i*2.399,h=.8+(i%3)*.3;const stem=mesh(new THREE.CylinderGeometry(.012,.012,h,6),material('#718a94'),g,Math.cos(a)*.1,h*.5+.5,Math.sin(a)*.1);stem.rotation.z=Math.cos(a)*.25;const leaf=ball(g,material(i%2?'#b2c0cb':'#92a8b5'),Math.cos(a)*.27,h+.4,Math.sin(a)*.27,.17,.39,.035);leaf.rotation.z=-Math.cos(a)*.65;leaf.rotation.y=a;}}
  resize(){this.width=this.canvas.parentElement.clientWidth;this.height=this.canvas.parentElement.clientHeight;this.renderHeight=Math.max(180,this.height-(this.width<680?65:95));const aspect=this.width/Math.max(1,this.renderHeight);const h=Math.max(8.2,15.5/aspect);this.camera.left=-h*aspect/2;this.camera.right=h*aspect/2;this.camera.top=h/2;this.camera.bottom=-h/2;this.camera.updateProjectionMatrix();if(aspect<1.25){this.camera.position.set(3.7,12,18);this.camera.lookAt(0,2.1,0);}else{this.camera.position.set(5,9.2,16);this.camera.lookAt(0,2.4,0);}this.renderer.setSize(this.width,this.height,false);this.renderer.setViewport(0,0,this.width,this.renderHeight);}
  setSpeaker(role,gesture){this.active=role;this.actors.forEach(a=>a.gesture=a.role.id===role?gesture:'listen');}
- preview(role,gesture){this.actors.forEach(a=>a.manual=a.role.id===role?gesture:'listen');this.motionPreview=true;}
- stopPreview(){this.actors.forEach(a=>a.manual=null);this.motionPreview=false;}
+ preview(role,gesture,focus=false){this.previewFocus=focus?role:null;this.actors.forEach(a=>a.manual=a.role.id===role?gesture:'listen');this.motionPreview=true;}
+ stopPreview(){this.previewFocus=null;this.actors.forEach(a=>a.manual=null);this.motionPreview=false;}
+ updateCamera(dt){
+  const aspect=this.width/Math.max(1,this.renderHeight),narrow=aspect<1.25,h=Math.max(8.2,15.5/aspect);
+  const actor=this.actors.find(a=>a.role.id===this.previewFocus),center=actor?new V(actor.root.position.x,1.95,actor.root.position.z):new V(0,narrow?2.1:2.4,0);
+  const offset=narrow?new V(3.7,9.9,18):new V(5,6.8,16),target=center.clone().add(offset);
+  const blend=1-Math.exp(-dt*5),zoom=actor?h/4.9:1;
+  this.camera.position.lerp(target,blend);this.cameraAim??=new V(0,narrow?2.1:2.4,0);this.cameraAim.lerp(center,blend);
+  this.camera.zoom+=(zoom-this.camera.zoom)*blend;this.camera.lookAt(this.cameraAim);this.camera.updateProjectionMatrix();this.camera.updateMatrixWorld(true);
+ }
  updateActor(a,dt,t){const speaking=a.role.id===this.active&&!this.motionPreview;let gesture=a.manual||a.gesture;const idleCycle=Math.floor((t+a.seed)/8)%6;if(!speaking&&!a.manual){gesture=['listen','think','nod','listen','write','listen'][idleCycle];}
-  const p=pose(gesture,t+a.seed,speaking),active=this.actors.find(x=>x.role.id===this.active);let look=0;if(active&&active!==a){const delta=active.root.position.clone().sub(a.root.position);const local=delta.applyAxisAngle(new V(0,1,0),-a.root.rotation.y);look=Math.max(-.42,Math.min(.42,Math.atan2(local.x,local.z)*.22));}
-  if(a.kanshan&&gesture==='wave'){p.rsZ=3.25;p.rsX=-.12;p.reX=-.12;}
-  p.headYaw+=look;const step=this.reduced?0:dt;
+  const motionTime=this.reduced?0:t+a.seed;const p=(a.kanshan?kanshanPose:pose)(gesture,motionTime,speaking),active=this.actors.find(x=>x.role.id===this.active);let look=0;if(active&&active!==a){const delta=active.root.position.clone().sub(a.root.position);const local=delta.applyAxisAngle(new V(0,1,0),-a.root.rotation.y);look=Math.max(-.42,Math.min(.42,Math.atan2(local.x,local.z)*.22));}
+  p.headYaw+=look;const step=dt;
   for(const k in p)a.springs[k].step(p[k],step);const s=Object.fromEntries(Object.entries(a.springs).map(([k,v])=>[k,v.value]));
   if(a.kanshan){animateKanshan(a,s,this.reduced?0:t,gesture,dt);}else{
   a.torso.rotation.set(s.lean,s.bodyYaw,Math.sin(t*.9+a.seed)*.008);a.torso.position.y=.54+Math.sin(t*1.7+a.seed)*.009;a.torso.scale.y=1+Math.sin(t*1.7+a.seed)*.005;a.head.rotation.set(s.headPitch,s.headYaw,s.headRoll);
   a.arms[0].shoulder.rotation.set(s.lsX,0,s.lsZ);a.arms[0].elbow.rotation.x=s.leX;a.arms[0].wrist.rotation.z=s.lwZ;a.arms[1].shoulder.rotation.set(s.rsX,0,s.rsZ);a.arms[1].elbow.rotation.x=s.reX;a.arms[1].wrist.rotation.z=s.rwZ;
   const blinkPhase=(t+a.seed*2)%5.1,blink=blinkPhase<.16?Math.pow(Math.sin(blinkPhase/.16*Math.PI),2):0;a.eyes.forEach(e=>e.scale.y=.048*(1-.93*blink));a.mouth.scale.y=.012+(speaking?.055*Math.pow(Math.sin(t*8.5),2):0);}
   if(!a.kanshan){a.cup.visible=gesture==='sip';a.pencil.visible=gesture==='write';}
-  a.root.updateMatrixWorld(true);a.anchor.set(0,a.kanshan?3.12:2.22,0).applyMatrix4(a.root.matrixWorld).project(this.camera);this.onProject(a.role.id,(a.anchor.x*.5+.5)*this.width,(-a.anchor.y*.5+.5)*this.renderHeight+(this.height-this.renderHeight),this.width,this.height);
+  a.root.updateMatrixWorld(true);a.anchor.set(0,a.kanshan?3.12:2.22,0).applyMatrix4(a.root.matrixWorld).project(this.camera);this.onProject(a.role.id,(a.anchor.x*.5+.5)*this.width,(-a.anchor.y*.5+.5)*this.renderHeight+(this.height-this.renderHeight),this.width,this.height,!this.previewFocus);
  }
- loop(now){if(!this.running)return;this.raf=requestAnimationFrame(this.loop);const raw=(now-(this.last||now))/1000;this.last=now;if(document.hidden)return;const dt=Math.min(raw,.034);this.time+=dt;this.frame++;if(raw>0&&this.ready)this.frames.push(raw*1000);if(this.frames.length>600)this.frames.shift();this.actors.forEach(a=>this.updateActor(a,dt,this.time));const active=this.actors.find(a=>a.role.id===this.active);if(active){this.ring.position.x=active.root.position.x;this.ring.position.z=active.root.position.z;this.ring.material.opacity=.35+Math.sin(this.time*2)*.12;}
+ loop(now){if(!this.running)return;this.raf=requestAnimationFrame(this.loop);const raw=(now-(this.last||now))/1000;this.last=now;if(document.hidden)return;const dt=frameDelta(raw);this.time+=dt;this.updateCamera(dt);this.frame++;if(raw>0&&this.ready)this.frames.push(raw*1000);if(this.frames.length>600)this.frames.shift();this.actors.forEach(a=>this.updateActor(a,dt,this.time));const active=this.actors.find(a=>a.role.id===this.active);if(active){this.ring.position.x=active.root.position.x;this.ring.position.z=active.root.position.z;this.ring.material.opacity=.35+Math.sin(this.time*2)*.12;}
   this.renderer.render(this.scene,this.camera);if(this.assetReady)this.warmFrames++;if(!this.ready&&this.warmFrames>=16){this.ready=true;this.onReady?.();}this.onTick?.(dt);if(this.frame%180===0&&this.frames.length>120){const p=[...this.frames].sort((a,b)=>a-b)[Math.floor(this.frames.length*.95)];if(p>26&&this.renderer.getPixelRatio()>1){this.renderer.setPixelRatio(Math.max(1,this.renderer.getPixelRatio()-.25));this.renderer.setSize(this.width,this.height,false);this.renderer.setViewport(0,0,this.width,this.renderHeight);}}
  }
  stats(){const f=[...this.frames].sort((a,b)=>a-b);return {frames:this.frame,actors:this.actors.length,drawCalls:this.renderer.info.render.calls,triangles:this.renderer.info.render.triangles,p95:f.length?f[Math.floor(f.length*.95)]:0,mean:f.reduce((a,b)=>a+b,0)/Math.max(1,f.length),over50:f.filter(x=>x>50).length,dpr:this.renderer.getPixelRatio()};}
