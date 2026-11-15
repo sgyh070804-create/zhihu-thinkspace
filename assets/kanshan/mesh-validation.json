@@ -1,0 +1,56 @@
+{
+  "blender": "4.5.0",
+  "meshes": {
+    "Kanshan_White_Continuous_Surface": {
+      "vertices": 80438,
+      "faces": 80436,
+      "boundary_edges": 0,
+      "nonmanifold_edges": 0
+    },
+    "Kanshan_Nose": {
+      "vertices": 2112,
+      "faces": 2050,
+      "boundary_edges": 0,
+      "nonmanifold_edges": 0
+    },
+    "Eye_L": {
+      "vertices": 672,
+      "faces": 642,
+      "boundary_edges": 0,
+      "nonmanifold_edges": 0
+    },
+    "Eye_R": {
+      "vertices": 672,
+      "faces": 642,
+      "boundary_edges": 0,
+      "nonmanifold_edges": 0
+    },
+    "Kanshan_Arm_L": {
+      "vertices": 12504,
+      "faces": 12502,
+      "boundary_edges": 0,
+      "nonmanifold_edges": 0
+    },
+    "Kanshan_Leg_L": {
+      "vertices": 11390,
+      "faces": 11388,
+      "boundary_edges": 0,
+      "nonmanifold_edges": 0
+    },
+    "Kanshan_Arm_R": {
+      "vertices": 12502,
+      "faces": 12500,
+      "boundary_edges": 0,
+      "nonmanifold_edges": 0
+    },
+    "Kanshan_Leg_R": {
+      "vertices": 11390,
+      "faces": 11388,
+      "boundary_edges": 0,
+      "nonmanifold_edges": 0
+    }
+  },
+  "bones": 11,
+  "source": "supplied three-view reference",
+  "scale": "stylized reference height 3.84 Blender units"
+}

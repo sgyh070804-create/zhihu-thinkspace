@@ -1,0 +1,13 @@
+{
+  "name": "Kanshan reference reconstruction",
+  "version": "0.2.0",
+  "source": "../../../../assets/kanshan/kanshan-source.blend",
+  "runtime": "kanshan-runtime.glb",
+  "bytes": 2351432,
+  "meshes": 8,
+  "vertices": 41928,
+  "triangles": 83824,
+  "bones": 11,
+  "lod": "0.30 decimation of high resolution reference mesh",
+  "license": "Character IP remains with its original rights holder; see resource README."
+}

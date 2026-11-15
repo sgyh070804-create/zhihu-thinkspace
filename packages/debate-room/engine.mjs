@@ -1,8 +1,8 @@
 export const roles=[
- {id:'explorer',name:'探索者',title:'寻找另一种可能',color:'#5e8f7d',gesture:'explain'},
- {id:'skeptic',name:'质疑者',title:'给观点一点阻力',color:'#b98768',gesture:'question'},
- {id:'weaver',name:'归纳者',title:'把线索连成观点',color:'#9689ad',gesture:'open'},
- {id:'user',name:'你',title:'这张桌子的一员',color:'#3e665a',gesture:'talk'}
+ {id:'explorer',name:'探索者',title:'寻找另一种可能',color:'#5f748b',gesture:'explain'},
+ {id:'skeptic',name:'质疑者',title:'给观点一点阻力',color:'#778ca5',gesture:'question'},
+ {id:'weaver',name:'归纳者',title:'把线索连成观点',color:'#8b96ae',gesture:'open'},
+ {id:'user',name:'你',title:'这张桌子的一员',color:'#3c536d',gesture:'talk'}
 ];
 export const gestures=['listen','explain','question','open','point','think','nod','disagree','wave','write','sip','celebrate'];
 export const topics=[

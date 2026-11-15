@@ -1,0 +1,10 @@
+README.md text eol=lf
+docs/debate-room/** text=auto eol=lf
+packages/debate-room/** text=auto eol=lf
+assets/kanshan/** text=auto eol=lf
+*.glb binary
+*.blend binary
+*.png binary
+*.jpg binary
+releases/*.zip binary
+releases/*.sha256 text eol=lf

@@ -97,3 +97,12 @@ docs/       项目计划
 - [启动与接入说明](packages/debate-room/README.md)
 - [实际测试截图与验证限制](docs/debate-room/README.md)
 - 测试：`npm --prefix packages/debate-room test`
+
+## 三维角色与冷色资源包（0.2.0）
+
+长桌讨论室已接入刘看山三维骨骼模型，配套黑白气泡和冷灰蓝主题。
+
+- [当前界面、截图和接入文档](docs/debate-room/README.md)
+- [模型原件、参考和建模源码](assets/kanshan/README.md)
+- [完整前端素材 ZIP](releases/thinkspace-resources-v0.2.0.zip)
+- 自动测试：`npm --prefix packages/debate-room test`
