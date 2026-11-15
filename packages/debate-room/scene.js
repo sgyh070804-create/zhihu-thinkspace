@@ -1,5 +1,6 @@
 import * as THREE from './vendor/three.module.min.js';
 import {Spring} from './engine.mjs';
+import {makePaperCharacter,animatePaper} from './paper-character.js';
 const V=THREE.Vector3;
 const sphere=new THREE.SphereGeometry(1,28,20),capsule=new THREE.CapsuleGeometry(1,1,5,12);
 const materials={white:new THREE.MeshStandardMaterial({color:0xfaf9f4,roughness:.83}),black:new THREE.MeshStandardMaterial({color:0x202522,roughness:.58}),nose:new THREE.MeshStandardMaterial({color:0x161b1a,roughness:.32}),skin:new THREE.MeshStandardMaterial({color:0xe8be9e,roughness:.82}),hair:new THREE.MeshStandardMaterial({color:0x303b34,roughness:.95}),shirt:new THREE.MeshStandardMaterial({color:0x5b806f,roughness:.94}),pants:new THREE.MeshStandardMaterial({color:0x4e5d62,roughness:.9}),paper:new THREE.MeshStandardMaterial({color:0xfdfcf3,roughness:.9})};
@@ -61,7 +62,7 @@ export class DebateScene{
   const rug=mesh(rounded(17,9,.015,.9),material('#e9ecdf'),this.scene,0,.005,.5);rug.castShadow=false;
   const wood=new THREE.MeshStandardMaterial({color:0xe2cfb1,map:woodTexture(),roughness:.8});mesh(rounded(13.4,3.4,.22,.46),wood,this.scene,0,1.35,0);mesh(rounded(12.9,3,.14,.28),material('#b99b77'),this.scene,0,1.2,0);
   for(const x of [-5.5,5.5])for(const z of [-1.15,1.15]){const leg=mesh(new THREE.CylinderGeometry(.095,.075,1.28,12),material('#8f8268'),this.scene,x,.64,z);leg.rotation.z=x>0?-.06:.06;}
-  const placements=[[-4.4,-2.35],[0,-2.35],[4.4,-2.35],[0,2.8]];roles.forEach((r,i)=>{this.makeChair(placements[i],i===3);const actor=makeCharacter(this.scene,r,placements[i],i===3);this.actors.push(actor);this.makePlaceSetting(placements[i],i===3,r.color);});
+  const placements=[[-4.4,-2.35],[0,-2.35],[4.4,-2.35],[0,2.8]];roles.forEach((r,i)=>{this.makeChair(placements[i],i===3);const actor=i===3?makeCharacter(this.scene,r,placements[i],true):makePaperCharacter(this.scene,r,placements[i]);this.actors.push(actor);this.makePlaceSetting(placements[i],i===3,r.color);});
   this.makeTableObjects();this.makePlant(7.7,-3.4);this.makePlant(-8,-1.5,.7);
   const ringMat=new THREE.MeshBasicMaterial({color:0xb7ca9d,transparent:true,opacity:.6,side:THREE.DoubleSide,depthWrite:false});this.ring=mesh(new THREE.RingGeometry(.68,.70,64),ringMat,this.scene,0,.035,0);this.ring.rotation.x=-Math.PI/2;this.ring.castShadow=false;
   this.observer=new ResizeObserver(()=>this.resize());this.observer.observe(canvas.parentElement);this.resize();this.renderer.compile(this.scene,this.camera);this.running=true;this.ready=false;this.visibilityHandler=()=>{this.last=0;};document.addEventListener('visibilitychange',this.visibilityHandler);
@@ -79,10 +80,12 @@ export class DebateScene{
   const p=pose(gesture,t+a.seed,speaking),active=this.actors.find(x=>x.role.id===this.active);let look=0;if(active&&active!==a){const delta=active.root.position.clone().sub(a.root.position);const local=delta.applyAxisAngle(new V(0,1,0),-a.root.rotation.y);look=Math.max(-.42,Math.min(.42,Math.atan2(local.x,local.z)*.22));}
   p.headYaw+=look;const step=this.reduced?0:dt;
   for(const k in p)a.springs[k].step(p[k],step);const s=Object.fromEntries(Object.entries(a.springs).map(([k,v])=>[k,v.value]));
+  if(a.paper){animatePaper(a,s,this.reduced?0:t,speaking,this.camera);}else{
   a.torso.rotation.set(s.lean,s.bodyYaw,Math.sin(t*.9+a.seed)*.008);a.torso.position.y=.54+Math.sin(t*1.7+a.seed)*.009;a.torso.scale.y=1+Math.sin(t*1.7+a.seed)*.005;a.head.rotation.set(s.headPitch,s.headYaw,s.headRoll);
   a.arms[0].shoulder.rotation.set(s.lsX,0,s.lsZ);a.arms[0].elbow.rotation.x=s.leX;a.arms[0].wrist.rotation.z=s.lwZ;a.arms[1].shoulder.rotation.set(s.rsX,0,s.rsZ);a.arms[1].elbow.rotation.x=s.reX;a.arms[1].wrist.rotation.z=s.rwZ;
-  const blinkPhase=(t+a.seed*2)%5.1,blink=blinkPhase<.16?Math.pow(Math.sin(blinkPhase/.16*Math.PI),2):0;a.eyes.forEach(e=>e.scale.y=.048*(1-.93*blink));a.mouth.scale.y=.012+(speaking?.055*Math.pow(Math.sin(t*8.5),2):0);a.cup.visible=gesture==='sip';a.pencil.visible=gesture==='write';
-  a.root.updateMatrixWorld(true);a.anchor.set(0,2.22,0).applyMatrix4(a.root.matrixWorld).project(this.camera);this.onProject(a.role.id,(a.anchor.x*.5+.5)*this.width,(-a.anchor.y*.5+.5)*this.height,this.width,this.height);
+  const blinkPhase=(t+a.seed*2)%5.1,blink=blinkPhase<.16?Math.pow(Math.sin(blinkPhase/.16*Math.PI),2):0;a.eyes.forEach(e=>e.scale.y=.048*(1-.93*blink));a.mouth.scale.y=.012+(speaking?.055*Math.pow(Math.sin(t*8.5),2):0);}
+  a.cup.visible=gesture==='sip';a.pencil.visible=gesture==='write';
+  a.root.updateMatrixWorld(true);a.anchor.set(0,a.paper?2.48:2.22,0).applyMatrix4(a.root.matrixWorld).project(this.camera);this.onProject(a.role.id,(a.anchor.x*.5+.5)*this.width,(-a.anchor.y*.5+.5)*this.height,this.width,this.height);
  }
  loop(now){if(!this.running)return;this.raf=requestAnimationFrame(this.loop);const raw=(now-(this.last||now))/1000;this.last=now;if(document.hidden)return;const dt=Math.min(raw,.034);this.time+=dt;this.frame++;if(raw>0&&this.ready)this.frames.push(raw*1000);if(this.frames.length>600)this.frames.shift();this.actors.forEach(a=>this.updateActor(a,dt,this.time));const active=this.actors.find(a=>a.role.id===this.active);if(active){this.ring.position.x=active.root.position.x;this.ring.position.z=active.root.position.z;this.ring.material.opacity=.35+Math.sin(this.time*2)*.12;}
   this.renderer.render(this.scene,this.camera);if(!this.ready&&this.frame>=16){this.ready=true;this.onReady?.();}this.onTick?.(dt);if(this.frame%180===0&&this.frames.length>120){const p=[...this.frames].sort((a,b)=>a-b)[Math.floor(this.frames.length*.95)];if(p>26&&this.renderer.getPixelRatio()>1){this.renderer.setPixelRatio(Math.max(1,this.renderer.getPixelRatio()-.25));this.renderer.setSize(this.width,this.height,false);}}
