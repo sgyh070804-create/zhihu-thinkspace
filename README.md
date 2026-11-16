@@ -2,6 +2,8 @@
 
 AI 阅读思考助手与个人收藏知识库：收藏问答、拓展视角、观点沉淀。知乎黑客松项目。
 
+成员与 AI 开发助手开始协作前，请阅读 [ThinkSpace 协作约定](AGENTS.md)。
+
 ## 当前已完成的第一闭环
 
 - 知乎 OAuth Authorization Code 接入骨架：`app_key`、授权码交换和 OAuth token 都只留在服务端。
