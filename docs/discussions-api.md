@@ -426,6 +426,8 @@ source.addEventListener('stream.end', () => source.close());
 
 ## 12. 检查中发现的跨模块问题
 
+> 2026-11-18 补充：本次网站 review 已将 `Store._connect()` 改为显式关闭的上下文管理器，并通过 Windows 文件释放测试及合并后 72 项 API 回归。下文保留原发现的上下文，当前修复见 [review 记录](reviews/2026-11-18-site-review.md)。
+
 **`api/app/store.py`（用户/会话/泡泡存储）同样使用 `with self._connect() as conn`，连接不会被显式关闭。** 这不在 D 模块范围内，但影响整个进程：
 
 - 每次登录、会话校验、泡泡读写都会留下一个连接，靠 GC 回收
