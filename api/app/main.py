@@ -4,8 +4,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from . import auth, bubbles, extension, zhihu_data
+from . import auth, bubbles, discussions, extension, zhihu_data
 from .config import Settings
+from .discussion_store import DiscussionStore
 from .providers.zhihu import ZhihuClient, ZhihuError
 from .store import Store
 
@@ -15,6 +16,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="ThinkSpace API", version="0.1.0")
     app.state.settings = settings
     app.state.store = Store(settings.database_path, settings.secret_key)
+    # 讨论室的表引用 users，因此必须在 Store 建好用户表之后再初始化。
+    app.state.discussions = DiscussionStore(settings.database_path)
     app.state.zhihu = ZhihuClient(settings)
 
     app.add_middleware(
@@ -45,6 +48,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(zhihu_data.router)
     app.include_router(bubbles.router)
     app.include_router(extension.router)
+    app.include_router(discussions.router)
     return app
 
 
