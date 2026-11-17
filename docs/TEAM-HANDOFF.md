@@ -1,76 +1,56 @@
-# 队友交接说明（2026-11-14）
+# 队友交接说明（2026-11-18）
 
-写给队友：本文说明 ThinkSpace 当前进度、每个部分怎么跑起来、以及 12 月 5 日拿到 OAuth 凭证后要做的唯一一件事。详细设计边界见 [PROJECT.md](PROJECT.md)，启动命令见根目录 [README.md](../README.md)。
+主站已有资料区与「思考体验」入口；两个独立演示现可从主站打开，构建时一起打包。真实 OAuth、真实用户数据与 AI 服务仍待联调。本地演示、离线测试通过不等于线上验收。
 
-## 一句话现状
+启动见根目录 [README.md](../README.md)，本次问题、修复与截图见 [网站 review 记录](reviews/2026-11-18-site-review.md)。项目边界见 [PROJECT.md](PROJECT.md)，后端任务认领参考 [工程规划](backend-engineering-plan.md)，规划不代表已实现。
 
-OAuth 登录、用户界面、公开数据接入、浏览器扩展灵感泡泡**全部开发完成并通过测试**；唯一缺口是真实 OAuth 凭证——按主办方流程，App ID / App Key 要等 12 月 5 日 10:00 作品提交入口开启、在赛事页面「创建项目」后才会分配。我们把架子搭到了"拿到 key 填进去就能用"的程度。
+## 当前可交接内容
 
-## 已完成清单
+| 功能 | 当前状态与证据 |
+|---|---|
+| OAuth 发起、回调、授权码交换 | 骨架及模拟提供方测试通过；真实授权待凭证与联调 |
+| 用户身份与私有记录隔离 | 同 UID 跨浏览器复用本地用户；切换 UID 不沿用旧账号记录；离线并发与隔离测试通过 |
+| 资料与用户页 | 本地演示资料可查看；关注 5→8、创作 5→10→12 分页在浏览器验证 |
+| 收藏夹、收藏条目、近期收藏 | 演示适配已实现；真实数据待联调 |
+| 阅读扩展与文章关联泡泡 | 已有配对与保存实现，本次未重做扩展实机验收 |
+| 泡泡动画 | 主站入口、内嵌加载与阅读交互已验证；使用示例观点，未同步私有记录 |
+| 三维讨论室 | 主站内嵌加载、模型显示及暂停控制已验证；预设回复，不连接 AI |
+| 验证 | 本次 API 16 项、网页 8 项、讨论室 11 项及泡泡物理检查通过；详见 review |
 
-| 功能 | 状态 | 验证方式 |
-|---|---|---|
-| OAuth 授权发起 / 回调 / 授权码交换 | ✅ 代码完成 | 跳转地址已实测正确（`302 → openapi.zhihu.com/authorize?app_id=...`）；真实授权待 key |
-| 授权用户基础信息（昵称/头像/简介/uid） | ✅ 代码完成 | 官方接口 `GET openapi.zhihu.com/user`；uid 按官方要求以字符串无损保存 |
-| 右上角头像 → 用户界面 | ✅ 完成 | 点击进入 profile 视图 |
-| 关注列表 + 创作列表分页（加载更多） | ✅ 完成 | 按官方协议用服务端 `NextOffset` 原样回传；演示数据实测 5+3 分页正确 |
-| 公开收藏夹 / 收藏条目 / 近期收藏 | ✅ 完成 | 演示模式可用；真实数据待 key |
-| 点赞 / 评论历史 | ⛔ 官方未开放 | 公开文档无此接口，页面明确标注，不用累计数冒充 |
-| 浏览器扩展灵感泡泡 | ✅ 完成 | 加载已解压扩展即可在知乎文章页记录想法、选中文字，按内容 ID 关联文章 |
-| 服务端离线测试 | ✅ 10 项全过 | `pytest api/tests` |
+## 运行与发布
 
-## 目录结构
+沿用 Python/FastAPI/SQLite、Vue 3/TypeScript/Vite，无新增业务依赖。
 
-```text
-api/        FastAPI 服务端（app/ 代码，tests/ 离线测试）
-web/        Vue 3 + TypeScript 网页
-extension/  Chrome/Edge MV3 灵感泡泡扩展
-tools/      此前已验证的知识库 RAG 命令行工具
-docs/       PROJECT.md（项目计划）、本文
-.env        本地配置（已被 Git 忽略，绝不提交）
-```
+1. 按根 README 安装依赖，已有 `.env` 不要覆盖。
+2. 启动 API 和网页，打开 `http://localhost:5173`。
+3. 未登录也可进入「思考体验」；点击「先体验本地演示」查看示例资料，再点头像查看分页。
+4. `npm --prefix web run build` 产出整个 `web/dist/`，其中包括 `experiences/` 的运行资源。生产环境配置同域 `/api/` 反向代理；当前按根路径部署。
 
-## 本地启动（3 分钟）
+Access Secret、App Key、令牌和真实用户数据只留本地或服务端。网页不读取 `.env` 中的秘密；FastAPI 负责读取服务端配置。示例配置见根目录 `.env.example`。
 
-```powershell
-Set-Location D:\ds\zhihu-thinkspace
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r api\requirements.txt
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir api --reload --port 8000
+## 拿到真实 OAuth 凭证后
 
-# 另开一个终端
-npm --prefix web install
-npm --prefix web run dev
-```
+凭证分配时间及方式以赛事当前说明为准，不承诺填入后即可完成真实接入。
 
-打开 http://localhost:5173 → 点「先体验本地演示」→ 点右上角「演示用户」看用户界面和加载更多分页。
+1. 配置 Access Secret、App ID、App Key 和回调地址；回调地址与官方登记值完全一致。
+2. 真实验证授权发起、授权码交换、昵称头像及公开资料读取。
+3. 用同一账号在另一浏览器再次登录，确认找回自己的记录；换账号确认记录隔离。
+4. 联调拒绝授权、过期授权、`state` 回传、刷新与撤销行为，记录真实响应和恢复方式。
+5. 公网发布前检查 HTTPS、Cookie 配置与反向代理，并由队友验收。
 
-注意：网页从 `.env` 读 Access Secret。**每个人用自己在 https://developer.zhihu.com/profile 申请的 Access Secret**，只填在自己机器的 `.env` 里（复制 `.env.example` 起步），不要发到群里、不要提交到 Git。
+## 待处理边界
 
-## 12 月 5 日拿到 key 后（预计 5 分钟接入）
+- 旧实现可能已经产生同 UID 的重复本地用户或混合归属记录。本次防止新错误，不自动合并、删除或迁移旧数据；有真实存量时由后端负责人先备份并核对归属。
+- 点赞与评论历史仍显示未接入，不以互动累计数冒充历史；官方能力需在真实联调时重新核对。
+- 收藏接口按摘要展示，不当作全文。
+- 泡泡融合生成新观点、讨论室 AI 回复及演示与真实记录同步尚未实现。
+- 开发工具链存在 minimatch 中危告警，运行依赖审计为 0；升级建议及检查范围见 review。
 
-1. 10:00 后在赛事页面完成「创建项目」，拿到分配的 **App ID** 和 **App Key**
-2. 打开 `D:\ds\zhihu-thinkspace\.env`，填入：
-   ```dotenv
-   ZHIHU_OAUTH_APP_ID=<赛事分配的 App ID>
-   ZHIHU_OAUTH_APP_KEY=<赛事分配的 App Key>
-   ```
-3. 重启后端（Ctrl+C 后重新运行 uvicorn 命令）
-4. 网页点「使用知乎账号登录」→ 知乎授权页 → 回调 → 右上角出现真实昵称头像
-5. **登记回调地址**：如赛事页面要求填回调地址，填 `http://localhost:8000/api/auth/zhihu/callback`，必须与 `.env` 里的 `ZHIHU_OAUTH_REDIRECT_URI` 完全一致
+## 代码入口
 
-## 已知的官方限制（不要踩坑）
-
-- **点赞/评论历史**：公开用户数据文档没有这两个接口。页面上的"点赞""评论"标签是有意设计成"未接入"提示的，不要用内容上的累计点赞数冒充历史，也不要调知乎私有网页 API。
-- **收藏只有摘要**：官方收藏接口返回 Summary 摘要，不是全文，不要当全文展示。
-- **OAuth token 约 1 小时过期**：官方未提供刷新令牌机制，过期需重新授权（页面会提示）。
-- **回调 state**：官方实测可能不回传 state，我们已用短期 HttpOnly 授权事务 Cookie 做请求关联校验，这部分代码已写好。
-- **知识库**：创建知识库接口曾返回 405，使用已有知识库即可（tools/zhihu-kb-test 已验证过全链路）。
-
-## 代码里几个值得看的位置
-
-- `api/app/auth.py` — OAuth 发起、回调、会话建立
-- `api/app/providers/zhihu.py` — 官方接口适配（双凭证、脱敏、用户信息）
-- `api/app/zhihu_data.py` — 收藏/创作/关注数据端点与能力边界标注
-- `web/src/components/UserProfile.vue` — 用户界面与分页逻辑
-- `extension/content.js` — 知乎文章页悬浮泡泡
+- `api/app/auth.py`、`api/app/store.py`：授权与账号归属。
+- `api/app/providers/zhihu.py`、`api/app/zhihu_data.py`：知乎数据适配。
+- `web/src/App.vue`、`web/src/request-scope.ts`：主站导航及异步请求状态保护。
+- `web/src/components/UserProfile.vue`：资料与分页。
+- `web/src/components/ExperienceGallery.vue`、`web/experiences.mjs`：体验入口及运行资源打包。
+- `extension/content.js`：已有阅读页想法记录入口。

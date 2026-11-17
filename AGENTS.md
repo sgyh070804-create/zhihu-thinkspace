@@ -47,6 +47,7 @@
 | 启动 API（Windows 虚拟环境） | `.\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir api --reload --port 8000` |
 | 启动网页（另开终端） | `npm --prefix web run dev` |
 | API 测试 | `.\.venv\Scripts\python.exe -m pytest api/tests -q` |
+| 网页回归测试 | `npm --prefix web test` |
 | 网页类型检查与构建 | `npm --prefix web run build` |
 | 泡泡组件测试 | `npm --prefix packages/thought-bubbles test` |
 | 讨论室测试 | `npm --prefix packages/debate-room test` |

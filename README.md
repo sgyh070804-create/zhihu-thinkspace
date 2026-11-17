@@ -4,7 +4,9 @@ AI 阅读思考助手与个人收藏知识库：收藏问答、拓展视角、�
 
 成员与 AI 开发助手开始协作前，请阅读 [ThinkSpace 协作约定](AGENTS.md)。
 
-## 当前已完成的第一闭环
+## 当前实现与验证边界
+
+主站已提供资料区和「思考体验」入口，泡泡动画、三维讨论室可在主站内打开。当前完成本地演示与离线检查，真实知乎 OAuth 和 AI 回复仍待联调；未部署公网网站。最新修整与验证见 [网站 review 记录](docs/reviews/2026-11-18-site-review.md)。
 
 - 知乎 OAuth Authorization Code 接入骨架：`app_key`、授权码交换和 OAuth token 都只留在服务端。
 - 官方用户数据适配：公开收藏夹、收藏条目、近期收藏、用户公开创作、关注用户。
@@ -12,7 +14,7 @@ AI 阅读思考助手与个人收藏知识库：收藏问答、拓展视角、�
 - 灵感泡泡首版：Chrome/Edge MV3 扩展在知乎回答、专栏文章、想法和视频页提供悬浮窗，保存文章标题、作者、规范链接、选中文字和用户想法。
 - 文章关联：按内容类型与内容 ID 关联泡泡，例如 `answer:20001`、`article:30001`；同一文章的不同追踪参数会归并。
 - 用户隔离：网页会话和扩展 Bearer token 分开；扩展通过网页生成的一次性配对码连接，不读取知乎 Cookie。
-- 离线演示模式：没有知乎凭证时也可以验证完整交互，不会伪造真实知乎数据。
+- 离线演示模式：没有知乎凭证时可以验证示例资料交互；动画融合和讨论回复使用示例内容。
 
 ## 本地启动
 
@@ -20,7 +22,7 @@ AI 阅读思考助手与个人收藏知识库：收藏问答、拓展视角、�
 
 ```powershell
 Set-Location D:\ds\zhihu-thinkspace
-Copy-Item .env.example .env
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r api\requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir api --reload --port 8000
@@ -30,24 +32,24 @@ python -m venv .venv
 
 ```powershell
 Set-Location D:\ds\zhihu-thinkspace
-npm --prefix web install
+npm --prefix web ci
 npm --prefix web run dev
 ```
 
 打开 <http://localhost:5173>。没有真实凭证时可点击“先体验本地演示”。
 
-## 接入真实知乎账号（等 12 月 5 日赛事分配 key）
+## 接入真实知乎账号（待凭证与联调）
 
-知乎登录链路已开发完成并验证。按赛事手册流程，OAuth App ID / App Key 在 **2026-12-05 10:00 作品提交入口开启后**，随赛事页面「创建项目」分配。拿到后在根目录 `.env` 填入：
+已实现授权发起、回调、授权码交换和账号归属逻辑，离线测试使用模拟提供方。凭证获取方式与回调要求以赛事及官方当前说明为准。本地测试不证明真实账号已经接通。获得凭证后在根目录 `.env` 填入：
 
 ```dotenv
-ZHIHU_ACCESS_SECRET=你在 https://developer.zhihu.com/profile 申请的 Access Secret
+ZHIHU_ACCESS_SECRET=<个人申请的 Access Secret>
 ZHIHU_OAUTH_APP_ID=<赛事分配>
 ZHIHU_OAUTH_APP_KEY=<赛事分配>
 ZHIHU_OAUTH_REDIRECT_URI=http://localhost:8000/api/auth/zhihu/callback
 ```
 
-重启后端即完成接入，网页「使用知乎账号登录」真实生效。`ZHIHU_OAUTH_REDIRECT_URI` 必须与赛事页面登记的回调地址一致。OAuth 回调实测使用 `authorization_code`，当前公开资料没有闭合 `state` 回传、刷新令牌和撤销接口，所以首版用 HttpOnly 授权事务 Cookie 校验请求关联性，并把生产上线前确认项保留在文档中。
+重启后端后，再验证授权、回调、资料读取、同账号再次登录、换账号隔离和令牌过期行为。回调地址必须与官方登记值一致。当前实现处理 `authorization_code`，并使用 HttpOnly 授权事务 Cookie 校验请求关联性；`state` 回传、令牌刷新和撤销行为仍需真实联调确认。
 
 更多进度、坑位和队友协作说明见 [docs/TEAM-HANDOFF.md](docs/TEAM-HANDOFF.md)。
 
@@ -67,9 +69,12 @@ ZHIHU_OAUTH_REDIRECT_URI=http://localhost:8000/api/auth/zhihu/callback
 .\.venv\Scripts\python.exe -m pip install -r api\requirements-dev.txt
 .\.venv\Scripts\python.exe -m pytest api\tests -q
 npm --prefix web run build
+npm --prefix web test
 ```
 
-当前 7 个服务端测试覆盖：演示数据、能力缺口、URL 规范化、文章—泡泡关联、用户隔离、扩展配对、OAuth 发起和知乎请求双凭证。
+测试覆盖演示数据、能力缺口、文章关联、扩展配对、OAuth 请求及账号隔离；网页测试覆盖异步请求失效、错误处理和演示资源打包。本次实际结果见 review 记录。
+
+构建会将两个组件的运行资源复制到 `web/dist/experiences/`，无需分别启动演示服务器。可用 `npm --prefix web run preview` 检查构建产物。正式部署需发布整个 `web/dist/` 并配置同域 `/api/` 反向代理到 FastAPI，不能只上传主页。当前资源路径按域名根目录部署；子路径部署需另行适配。
 
 ## 目录
 
@@ -85,7 +90,7 @@ docs/       项目计划
 
 ## 灵感泡泡动画组件（首版）
 
-独立动画组件位于 [`packages/thought-bubbles`](packages/thought-bubbles)，包含透明薄膜材质、连续膜节点形变、拖动融合和内景阅读。无需 OAuth 即可运行演示；现有网页接入由业务层完成。
+独立动画组件位于 [`packages/thought-bubbles`](packages/thought-bubbles)，包含透明薄膜材质、连续膜节点形变、拖动融合和内景阅读。无需 OAuth 即可运行演示；主站「思考体验」已接入演示入口，真实泡泡记录与融合结果的业务同步仍待实现。
 
 - [运行方式、实际测试截图与验证范围](docs/bubble-animation/README.md)
 - [组件接入说明与 API](packages/thought-bubbles/README.md)
