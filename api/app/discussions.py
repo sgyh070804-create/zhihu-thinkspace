@@ -20,7 +20,7 @@ from contextlib import contextmanager
 from typing import Any
 
 import anyio
-from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -185,6 +185,10 @@ class MessageInput(BaseModel):
     )
     in_reply_to: str | None = Field(
         default=None, max_length=64, description="引用同一条讨论内的某条消息 ID"
+    )
+    advance: bool = Field(
+        default=False,
+        description="创建成功后自动推进一轮 AI 发言；网页端默认开启，普通 API 调用默认不开启",
     )
 
     model_config = {
@@ -372,6 +376,7 @@ def create_message(
     payload: MessageInput,
     request: Request,
     response: Response,
+    background_tasks: BackgroundTasks,
 ) -> Any:
     identity = current_identity(request)
     with _translate_errors():
@@ -386,6 +391,14 @@ def create_message(
     if not created:
         # 幂等命中不新建记录，用 200 与新建的 201 区分。
         response.status_code = 200
+    elif payload.advance:
+        # 用户发言成功后，让 E 模块在后台推进一轮 AI 发言。
+        # 只有真正新建消息时才排任务：网络重试命中幂等键，不能重复生成。
+        engine = getattr(request.app.state, "engine", None)
+        if engine is not None:
+            background_tasks.add_task(
+                engine.advance_safely, identity.user_id, discussion_id
+            )
     return {"message": message, "created": created}
 
 

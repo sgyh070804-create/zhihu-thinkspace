@@ -611,11 +611,15 @@ class DiscussionStore:
         client_msg_id: str | None = None,
         in_reply_to: str | None = None,
         status: str = MESSAGE_COMPLETED,
+        turn_index: int | None = None,
     ) -> tuple[dict, bool]:
         """追加一条**已经定型**的消息，返回 (消息, 是否新建)。
 
         只保存完整结果，不处理流式生成：`status` 在落库时确定，之后不会改变。
         生成过程（增量、取消、重试）属于编排模块，本层不参与。
+
+        `turn_index` 由 E 模块在写回 AI 发言时传入，和消息序号在同一个事务里推进；
+        不传则保持原值。用户消息不会传这个参数，轮次只由 AI 发言推进。
 
         消息序号、事件序号、消息计数三者在同一个 `BEGIN IMMEDIATE` 事务里推进，
         写锁保证并发提交不会拿到同一个序号。
@@ -641,12 +645,15 @@ class DiscussionStore:
             raise ValueError(f"单条消息最多 {MAX_MESSAGE_LENGTH} 字。")
         with self._write() as conn:
             row = conn.execute(
-                """SELECT status, message_seq, event_seq, message_count
+                """SELECT status, message_seq, event_seq, message_count, turn_index
                 FROM discussions WHERE id = ? AND user_id = ?""",
                 (discussion_id, user_id),
             ).fetchone()
             if row is None:
                 raise DiscussionNotFound("讨论不存在或不属于当前用户。")
+
+            if turn_index is not None and int(turn_index) < int(row["turn_index"]):
+                raise ValueError("轮次不能回退。")
 
             if client_msg_id:
                 existing = conn.execute(
@@ -710,11 +717,13 @@ class DiscussionStore:
             self._insert_event(
                 conn, discussion_id, event_seq, EVENT_MESSAGE_CREATED, now, message_id, payload
             )
+            effective_turn = int(row["turn_index"]) if turn_index is None else int(turn_index)
             conn.execute(
                 """UPDATE discussions
-                SET message_seq = ?, event_seq = ?, message_count = message_count + 1, updated_at = ?
+                SET message_seq = ?, event_seq = ?, message_count = message_count + 1,
+                    turn_index = ?, updated_at = ?
                 WHERE id = ?""",
-                (message_seq, event_seq, now, discussion_id),
+                (message_seq, event_seq, effective_turn, now, discussion_id),
             )
         self.notify_change(discussion_id)
         return self.get_message(user_id, discussion_id, message_id), True
