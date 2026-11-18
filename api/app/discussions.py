@@ -15,7 +15,7 @@ import json
 import sqlite3
 import threading
 import time
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Generator
 from contextlib import contextmanager
 from typing import Any
 
@@ -229,7 +229,7 @@ def _not_found() -> HTTPException:
 
 
 @contextmanager
-def _translate_errors() -> Iterator[None]:
+def _translate_errors() -> Generator[None, None, None]:
     """把存储层异常翻译成 HTTP 错误。
 
     用上下文管理器而不是 `_guarded(lambda: ...)`：lambda 会把真实调用栈埋掉，

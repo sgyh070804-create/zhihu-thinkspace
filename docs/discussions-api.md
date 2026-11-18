@@ -382,7 +382,7 @@ source.addEventListener('stream.end', () => source.close());
 
 ## 8. 已验证与未验证
 
-已验证（2026-11-17 记录：`pytest api/tests`，**66 passed**，其中讨论模块 56 个；2026-11-18 新增 E 模块 15 个用例，本机全量 81 个用例中 78 通过，3 个 SSE 生命周期用例因 anyio 3.7.1 失败——代码使用 `abandon_on_cancel`，需要 anyio ≥ 4）：
+已验证（2026-11-18：`pytest api/tests`，**81 passed**。其中讨论模块 56 个，E 模块 15 个；`anyio` 已升级到 4.16 并在 `api/requirements.txt` 约束 `>=4`，SSE 的 `abandon_on_cancel` 不再缺依赖）：
 
 - 创建：默认座位、角色子集仍保留 user、未知角色 422、`max_turns` 边界、主题空白/超长、**写锁超时返回 503 DATABASE_BUSY**
 - 认证与隔离：11 个端点未登录全部 401；跨用户读/写/暂停/停止/订阅全部 404；列表互不可见

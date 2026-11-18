@@ -22,7 +22,7 @@ import threading
 import time
 import uuid
 import weakref
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -123,7 +123,7 @@ class DiscussionStore:
         return conn
 
     @contextmanager
-    def _connection(self) -> Iterator[sqlite3.Connection]:
+    def _connection(self) -> Generator[sqlite3.Connection, None, None]:
         """用完必定关闭的连接，不管事务。
 
         `with sqlite3.connect(...) as conn` 只负责提交/回滚，**不会关闭连接**，
@@ -137,7 +137,7 @@ class DiscussionStore:
             conn.close()
 
     @contextmanager
-    def _read_snapshot(self) -> Iterator[sqlite3.Connection]:
+    def _read_snapshot(self) -> Generator[sqlite3.Connection, None, None]:
         """在同一个读事务里跑多条查询，保证它们看到同一份快照。
 
         直接用 `_connection()` 时，两次查询之间可能插入新写入，
@@ -158,7 +158,7 @@ class DiscussionStore:
             conn.close()
 
     @contextmanager
-    def _write(self) -> Iterator[sqlite3.Connection]:
+    def _write(self) -> Generator[sqlite3.Connection, None, None]:
         """写事务：拿到写锁、自动提交/回滚、必定关闭连接。
 
         所有写操作都必须走这里。手写 try/except/rollback 很容易漏掉某一步，
