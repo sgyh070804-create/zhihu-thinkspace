@@ -67,7 +67,8 @@ async function loadFollowees() {
 
 async function loadArticles() {
   const data = await api<{ items: ArticleGroup[] }>("/articles");
-  articles.value = data.items;
+  // 后端删除最后一条泡泡时会删掉文章；这里再挡一道，避免旧数据出现 0 条的空文章。
+  articles.value = data.items.filter((item) => item.bubble_count > 0);
 }
 
 async function loadActive() {
@@ -162,8 +163,15 @@ async function removeBubble(id: string) {
   if (!window.confirm("确定删除这条泡泡记录吗？")) return;
   try {
     await api(`/bubbles/${id}`, { method: "DELETE" });
-    if (selectedArticle.value) await selectArticle(selectedArticle.value);
     await loadArticles();
+    const current = selectedArticle.value;
+    if (current && articles.value.some((item) => item.article_key === current.article_key)) {
+      await selectArticle(current);
+    } else {
+      // 最后一条泡泡删掉后，文章也已经被后端删除，详情面板必须一起清空。
+      selectedArticle.value = null;
+      bubbles.value = [];
+    }
   } catch (reason) {
     showError(reason);
   }

@@ -55,6 +55,39 @@ def test_bubble_normalizes_url_and_associates_article(client: TestClient) -> Non
     assert len(related) == 2
 
 
+def test_deleting_last_bubble_removes_article(client: TestClient) -> None:
+    login_demo(client)
+    source = "https://zhuanlan.zhihu.com/p/40001"
+    created = client.post(
+        "/api/bubbles", json={"source_url": source, "body": "这篇文章唯一的一条泡泡"}
+    )
+    assert created.status_code == 201
+    assert client.get("/api/articles").json()["items"][0]["bubble_count"] == 1
+
+    deleted = client.delete(f"/api/bubbles/{created.json()['id']}")
+    assert deleted.status_code == 204
+
+    # 文章只是泡泡的分组：最后一条删掉后，文章也不应再出现在列表里。
+    assert client.get("/api/articles").json()["items"] == []
+    assert client.get("/api/bubbles", params={"source_url": source}).json()["items"] == []
+
+
+def test_deleting_one_of_two_bubbles_keeps_article(client: TestClient) -> None:
+    login_demo(client)
+    source = "https://www.zhihu.com/question/10002/answer/20002"
+    first = client.post("/api/bubbles", json={"source_url": source, "body": "第一条"})
+    second = client.post("/api/bubbles", json={"source_url": source, "body": "第二条"})
+    assert first.status_code == 201 and second.status_code == 201
+
+    assert client.delete(f"/api/bubbles/{first.json()['id']}").status_code == 204
+
+    articles = client.get("/api/articles").json()["items"]
+    assert len(articles) == 1
+    assert articles[0]["bubble_count"] == 1
+    remaining = client.get("/api/bubbles", params={"source_url": source}).json()["items"]
+    assert [item["body"] for item in remaining] == ["第二条"]
+
+
 def test_user_isolation_and_extension_pairing(client: TestClient, tmp_path) -> None:
     login_demo(client)
     created = client.post(

@@ -360,6 +360,9 @@ class Store:
                     ON b.user_id = a.user_id AND b.article_key = a.article_key
                 WHERE a.user_id = ?
                 GROUP BY a.user_id, a.article_key
+                -- 历史数据里可能已经有 0 条泡泡的孤儿文章；列表层再挡一道，
+                -- 避免用户升级后仍然看到删不掉的行。新数据由 delete_bubble 清理。
+                HAVING COUNT(b.id) > 0
                 ORDER BY last_bubble_at DESC""",
                 (user_id,),
             ).fetchall()
@@ -378,8 +381,38 @@ class Store:
         ]
 
     def delete_bubble(self, user_id: str, bubble_id: str) -> bool:
-        with self._connect() as conn:
-            result = conn.execute(
-                "DELETE FROM bubbles WHERE user_id = ? AND id = ?", (user_id, bubble_id)
+        """删除泡泡；如果这是该文章的最后一条，连带删除文章记录。
+
+        `articles` 只是泡泡的分组，没有独立内容。只删泡泡会留下
+        `bubble_count = 0` 的孤儿文章，前端“有泡泡的文章”就会出现
+        删不掉的行。两步放在同一个连接里，避免删完泡泡后文章删除失败。
+        """
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT article_key FROM bubbles WHERE user_id = ? AND id = ?",
+                (user_id, bubble_id),
+            ).fetchone()
+            if row is None:
+                return False
+            article_key = row["article_key"]
+            deleted = conn.execute(
+                "DELETE FROM bubbles WHERE user_id = ? AND id = ?",
+                (user_id, bubble_id),
             )
-        return result.rowcount > 0
+            if deleted.rowcount == 0:
+                return False
+            remaining = conn.execute(
+                "SELECT COUNT(*) AS count FROM bubbles WHERE user_id = ? AND article_key = ?",
+                (user_id, article_key),
+            ).fetchone()["count"]
+            if remaining == 0:
+                conn.execute(
+                    "DELETE FROM articles WHERE user_id = ? AND article_key = ?",
+                    (user_id, article_key),
+                )
+            conn.commit()
+            return True
+        finally:
+            # 这个连接显式关闭，不依赖 GC；写失败时未提交的事务会回滚。
+            conn.close()
