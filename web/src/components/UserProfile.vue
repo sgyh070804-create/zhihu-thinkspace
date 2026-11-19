@@ -1,92 +1,61 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { api, ApiError } from "../api";
+import { RequestScope } from "../request-scope";
 import type { ContentItem, Followee, Paging, Profile } from "../types";
-
 const emit = defineEmits<{ back: [] }>();
-
-const profile = ref<Profile | null>(null);
-const profileLoading = ref(true);
-const error = ref("");
-
+const profile = ref<Profile | null>(null), profileLoading = ref(true);
 const PAGE_SIZE = 5;
-
-const followees = ref<Followee[]>([]);
-const followeesPaging = ref<Paging | null>(null);
-const followeesLoading = ref(false);
-
-const creations = ref<ContentItem[]>([]);
-const creationsPaging = ref<Paging | null>(null);
-const creationsLoading = ref(false);
-
-function formatDate(timestamp?: number) {
-  if (!timestamp) return "未标注时间";
-  return new Date(timestamp * 1000).toLocaleDateString("zh-CN");
-}
-
+const followees = ref<Followee[]>([]), followeesPaging = ref<Paging | null>(null), followeesLoading = ref(false);
+const creations = ref<ContentItem[]>([]), creationsPaging = ref<Paging | null>(null), creationsLoading = ref(false);
+const errors = ref({ profile: "", followees: "", creations: "" });
+const error = computed(() => Object.values(errors.value).filter(Boolean).join(" "));
+const profileRequest = new RequestScope(), followeesRequest = new RequestScope(), creationsRequest = new RequestScope();
+function message(reason: unknown, fallback: string) { return reason instanceof ApiError ? reason.message : fallback; }
+function formatDate(timestamp?: number) { return timestamp ? new Date(timestamp * 1000).toLocaleDateString("zh-CN") : "未标注时间"; }
 async function loadProfile() {
-  profileLoading.value = true;
+  const request = profileRequest.begin(); profileLoading.value = true; errors.value.profile = "";
   try {
-    profile.value = await api<Profile>("/zhihu/me");
-  } catch (reason) {
-    error.value = reason instanceof ApiError ? reason.message : "用户信息加载失败。";
-  } finally {
-    profileLoading.value = false;
-  }
+    const data = await api<Profile>("/zhihu/me", { signal: request.signal });
+    if (request.isCurrent()) profile.value = data;
+  } catch (reason) { if (request.isCurrent()) errors.value.profile = message(reason, "用户信息加载失败。"); }
+  finally { if (request.isCurrent()) profileLoading.value = false; }
 }
-
 async function loadFollowees(reset = false) {
   if (followeesLoading.value) return;
-  followeesLoading.value = true;
-  error.value = "";
+  const request = followeesRequest.begin(); followeesLoading.value = true; errors.value.followees = "";
   try {
-    const offset = reset || !followeesPaging.value?.NextOffset
-      ? "0"
-      : followeesPaging.value.NextOffset;
-    const data = await api<{ Items: Followee[]; Paging: Paging }>(
-      `/zhihu/followees?offset=${offset}&limit=${PAGE_SIZE}`,
-    );
-    followees.value = reset ? data.Items || [] : [...followees.value, ...(data.Items || [])];
-    followeesPaging.value = data.Paging || null;
-  } catch (reason) {
-    error.value = reason instanceof ApiError ? reason.message : "关注列表加载失败。";
-  } finally {
-    followeesLoading.value = false;
-  }
+    const offset = reset ? "0" : followeesPaging.value?.NextOffset || "0";
+    const data = await api<{ Items: Followee[]; Paging: Paging }>(`/zhihu/followees?offset=${encodeURIComponent(offset)}&limit=${PAGE_SIZE}`, { signal: request.signal });
+    if (!request.isCurrent()) return;
+    followees.value = reset ? data.Items || [] : [...followees.value, ...(data.Items || [])]; followeesPaging.value = data.Paging || null;
+  } catch (reason) { if (request.isCurrent()) errors.value.followees = message(reason, "关注列表加载失败。"); }
+  finally { if (request.isCurrent()) followeesLoading.value = false; }
 }
-
 async function loadCreations(reset = false) {
   if (creationsLoading.value) return;
-  creationsLoading.value = true;
-  error.value = "";
+  const request = creationsRequest.begin(); creationsLoading.value = true; errors.value.creations = "";
   try {
-    const offset = reset || !creationsPaging.value?.NextOffset
-      ? "0"
-      : creationsPaging.value.NextOffset;
-    const data = await api<{ Items: ContentItem[]; Paging: Paging }>(
-      `/zhihu/contents?content_type=all&offset=${offset}&limit=${PAGE_SIZE}`,
-    );
-    creations.value = reset ? data.Items || [] : [...creations.value, ...(data.Items || [])];
-    creationsPaging.value = data.Paging || null;
-  } catch (reason) {
-    error.value = reason instanceof ApiError ? reason.message : "创作列表加载失败。";
-  } finally {
-    creationsLoading.value = false;
-  }
+    const offset = reset ? "0" : creationsPaging.value?.NextOffset || "0";
+    const data = await api<{ Items: ContentItem[]; Paging: Paging }>(`/zhihu/contents?content_type=all&offset=${encodeURIComponent(offset)}&limit=${PAGE_SIZE}`, { signal: request.signal });
+    if (!request.isCurrent()) return;
+    creations.value = reset ? data.Items || [] : [...creations.value, ...(data.Items || [])]; creationsPaging.value = data.Paging || null;
+  } catch (reason) { if (request.isCurrent()) errors.value.creations = message(reason, "创作列表加载失败。"); }
+  finally { if (request.isCurrent()) creationsLoading.value = false; }
 }
-
-onMounted(async () => {
-  await loadProfile();
-  await Promise.all([loadFollowees(true), loadCreations(true)]);
-});
+async function retryFailed() {
+  await Promise.all([errors.value.profile && loadProfile(), errors.value.followees && loadFollowees(), errors.value.creations && loadCreations()]);
+}
+onMounted(() => { void Promise.all([loadProfile(), loadFollowees(true), loadCreations(true)]); });
+onBeforeUnmount(() => { profileRequest.invalidate(); followeesRequest.invalidate(); creationsRequest.invalidate(); });
 </script>
 
 <template>
   <section class="user-profile">
     <button class="button secondary back-button" @click="emit('back')">← 返回资料区</button>
 
-    <div v-if="error" class="error-banner">
-      <span>{{ error }}</span><button @click="loadProfile">重试</button>
+    <div v-if="error" class="error-banner" role="alert">
+      <span>{{ error }}</span><button @click="retryFailed">重试</button>
     </div>
 
     <div class="profile-card panel">
