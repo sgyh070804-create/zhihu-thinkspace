@@ -2,6 +2,8 @@
 import { onMounted, ref } from "vue";
 import { api, ApiError } from "./api";
 import UserProfile from "./components/UserProfile.vue";
+import ThoughtBranches from "./components/ThoughtBranches.vue";
+const isBranchPage = window.location.pathname.replace(/\/$/, "") === "/thought-branches";
 import type {
   ArticleGroup,
   AuthStatus,
@@ -196,6 +198,7 @@ function formatDate(timestamp?: number) {
 }
 
 onMounted(async () => {
+  if (isBranchPage) return;
   if (new URLSearchParams(window.location.search).get("auth") === "success") {
     window.history.replaceState({}, "", "/");
   }
@@ -204,12 +207,14 @@ onMounted(async () => {
 </script>
 
 <template>
-  <main class="shell">
+  <ThoughtBranches v-if="isBranchPage" />
+  <main v-else class="shell">
     <header class="topbar">
       <a class="brand" href="/" aria-label="ThinkSpace 首页">
         <span class="brand-mark">T</span>
         <span><strong>ThinkSpace</strong><small>让阅读留下自己的思考</small></span>
       </a>
+      <a class="text-button" href="/thought-branches">思想分叉</a>
       <div v-if="status?.authenticated" class="account-actions">
         <button
           class="mode-badge clickable"
