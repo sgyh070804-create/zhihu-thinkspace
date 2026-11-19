@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:branches": "node --test tests/branches.test.mjs"
   },
   "dependencies": {
     "vue": "^3.5.13"
