@@ -43,6 +43,8 @@ class Settings:
     secret_key: str
     enable_demo: bool
     secure_cookie: bool
+    # 生成模型提供方。目前只有 fake（确定性假模型）；接知乎直答时在这里切换。
+    model_provider: str = "fake"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -69,6 +71,7 @@ class Settings:
             ),
             enable_demo=_bool_env("THINKSPACE_ENABLE_DEMO", True),
             secure_cookie=_bool_env("THINKSPACE_SECURE_COOKIE", False),
+            model_provider=os.environ.get("THINKSPACE_MODEL_PROVIDER", "fake"),
         )
 
     @property

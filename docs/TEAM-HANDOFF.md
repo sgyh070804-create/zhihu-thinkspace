@@ -1,4 +1,4 @@
-# 队友交接说明（2026-11-18）
+# 队友交接说明（2026-11-20）
 
 主站已有资料区与「思考体验」入口；两个独立演示现可从主站打开，构建时一起打包。真实 OAuth、真实用户数据与 AI 服务仍待联调。本地演示、离线测试通过不等于线上验收。
 
@@ -15,16 +15,17 @@
 | 阅读扩展与文章关联泡泡 | 已有配对与保存实现，本次未重做扩展实机验收 |
 | 泡泡动画 | 主站入口、内嵌加载与阅读交互已验证；使用示例观点，未同步私有记录 |
 | 三维讨论室 | 主站内嵌加载、模型显示及暂停控制已验证；预设回复，不连接 AI |
-| 讨论室后端 | 已保留队友合入主分支的存储、消息和 SSE 接口；见 [接口文档](discussions-api.md)，演示前端尚未联调 |
-| 验证 | 合入最新主分支后 API 72 项、网页 8 项、讨论室 11 项及泡泡物理检查通过；详见 review |
+| 讨论室后端 | 已保留队友合入主分支的存储、消息、SSE 和 E 模块角色调度接口（假模型）；见 [接口文档](discussions-api.md)，演示前端尚未联调 |
+| 思想分叉 | 树下方当前问题框、单条件分叉、判断记录与对照已实现；本机草稿，见 [说明](thought-branches/README.md) |
+| 验证 | 2026-11-20 合并检查：API 89 项、网页 14 项及构建通过；此前组件检查见 review |
 
 ## 运行与发布
 
-沿用 Python/FastAPI/SQLite、Vue 3/TypeScript/Vite，无新增业务依赖。
+沿用 Python/FastAPI/SQLite、Vue 3/TypeScript/Vite。保留主分支新增的 `anyio>=4,<5` 约束，以支持 SSE 的取消参数。
 
 1. 按根 README 安装依赖，已有 `.env` 不要覆盖。
 2. 启动 API 和网页，打开 `http://localhost:5173`。
-3. 未登录也可进入「思考体验」；点击「先体验本地演示」查看示例资料，再点头像查看分页。
+3. 未登录可进入「思想分叉」保存本机草稿，也可进入「思考体验」；点击「先体验本地演示」查看示例资料，再点头像查看分页。
 4. `npm --prefix web run build` 产出整个 `web/dist/`，其中包括 `experiences/` 的运行资源。生产环境配置同域 `/api/` 反向代理；当前按根路径部署。
 
 Access Secret、App Key、令牌和真实用户数据只留本地或服务端。网页不读取 `.env` 中的秘密；FastAPI 负责读取服务端配置。示例配置见根目录 `.env.example`。
@@ -48,6 +49,9 @@ Access Secret、App Key、令牌和真实用户数据只留本地或服务端。
 - 开发工具链存在 minimatch 中危告警，运行依赖审计为 0；升级建议及检查范围见 review。
 
 ## 代码入口
+
+- `api/app/discussion_engine.py`、`api/app/discussion_engine_api.py`：角色调度与推进；当前使用假模型。
+- `web/src/components/ThoughtBranches.vue`、`web/src/branches.ts`：思想分叉与本机草稿。
 
 - `api/app/auth.py`、`api/app/store.py`：授权与账号归属。
 - `api/app/providers/zhihu.py`、`api/app/zhihu_data.py`：知乎数据适配。

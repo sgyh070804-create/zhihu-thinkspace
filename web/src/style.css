@@ -146,7 +146,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 }
 
 .site-nav { display:flex; gap:6px; margin-left:auto; }
-.site-nav button { border:0; border-radius:10px; padding:9px 12px; color:var(--muted); background:transparent; white-space:nowrap; }
+.site-nav button, .site-nav a { border:0; border-radius:10px; padding:9px 12px; color:var(--muted); background:transparent; white-space:nowrap; }
 .site-nav button.active { color:var(--green); background:var(--green-light); }
 .hero-actions { flex-wrap:wrap; }
 .error-banner { margin-top:18px; gap:16px; }
@@ -171,3 +171,5 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   .experience-card { padding:24px; }
   .experience-toolbar a { margin-left:0; }
 }
+
+.site-nav a { display:inline-flex; align-items:center; text-decoration:none; }

@@ -4,7 +4,10 @@ import { api, ApiError } from "./api";
 import { RequestScope } from "./request-scope";
 import UserProfile from "./components/UserProfile.vue";
 import ExperienceGallery from "./components/ExperienceGallery.vue";
+import ThoughtBranches from "./components/ThoughtBranches.vue";
 import type { ArticleGroup, AuthStatus, Bubble, ContentItem, Favlist, Followee, Profile } from "./types";
+
+const isBranchPage = window.location.pathname.replace(/\/$/, "") === "/thought-branches";
 
 type TabKey = "favorites" | "creations" | "followees" | "likes" | "comments" | "bubbles";
 type ViewKey = "home" | "profile" | "experiences";
@@ -65,7 +68,7 @@ async function loadActive() {
     } else {
       const data = await api<{ items: ArticleGroup[] }>("/articles", options);
       if (request.isCurrent()) {
-        articles.value = data.items || [];
+        articles.value = (data.items || []).filter(item => item.bubble_count > 0);
         if (selectedArticle.value && !articles.value.some(a => a.article_key === selectedArticle.value?.article_key)) {
           articleRequest.invalidate(); selectedArticle.value = null; bubbles.value = []; detailLoading.value = false;
         }
@@ -143,8 +146,13 @@ async function removeBubble(id: string) {
   try {
     await api(`/bubbles/${id}`, { method: "DELETE", signal: request.signal });
     if (!request.isCurrent()) return;
-    if (article && selectedArticle.value?.article_key === article.article_key) await selectArticle(article);
-    if (request.isCurrent()) await loadActive();
+    // Refresh groups first: deleting the final bubble can remove the article itself.
+    if (activeTab.value === "bubbles") {
+      await loadActive();
+      if (request.isCurrent() && article && selectedArticle.value?.article_key === article.article_key && articles.value.some(item => item.article_key === article.article_key)) {
+        await selectArticle(article);
+      }
+    }
   } catch (reason) { if (request.isCurrent()) showError(reason, () => removeBubble(id)); }
   finally { if (request.isCurrent()) deletingId.value = ""; }
 }
@@ -161,6 +169,7 @@ async function retry() { await retryOperation(); }
 function formatDate(timestamp?: number) { return timestamp ? new Date(timestamp * 1000).toLocaleString("zh-CN") : "未标注时间"; }
 
 onMounted(async () => {
+  if (isBranchPage) return;
   if (new URLSearchParams(window.location.search).get("auth") === "success") window.history.replaceState({}, "", "/");
   await loadStatus();
 });
@@ -168,7 +177,8 @@ onBeforeUnmount(() => { authRequest.invalidate(); dataRequests.forEach(request =
 </script>
 
 <template>
-  <main class="shell">
+  <ThoughtBranches v-if="isBranchPage" />
+  <main v-else class="shell">
     <header class="topbar">
       <a class="brand" href="/" aria-label="ThinkSpace 首页">
         <span class="brand-mark">T</span>
@@ -177,6 +187,7 @@ onBeforeUnmount(() => { authRequest.invalidate(); dataRequests.forEach(request =
       <nav class="site-nav" aria-label="主导航">
         <button :class="{ active: view !== 'experiences' }" @click="view = 'home'">资料与想法</button>
         <button :class="{ active: view === 'experiences' }" @click="view = 'experiences'">思考体验</button>
+        <a href="/thought-branches">思想分叉</a>
       </nav>
       <div v-if="status?.authenticated" class="account-actions">
         <button

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import ast
 import sqlite3
 import threading
@@ -555,7 +556,8 @@ def test_stream_unknown_discussion_returns_404(client: TestClient) -> None:
 def test_stream_sends_heartbeat_when_idle(client: TestClient, monkeypatch) -> None:
     """活跃但长时间没有新事件时，应按间隔发 keep-alive 注释，否则中间层会掐断连接。
 
-    把心跳间隔压到 0.1 秒来验证，避免真的等 15 秒。
+    把心跳间隔压到 0.1 秒来验证，避免真的等 15 秒。Starlette 的 TestClient 会把
+    流式响应缓冲到应用结束，所以用定时器在 0.35 秒后停止讨论，让流正常收尾。
     """
     from app import discussions
 
@@ -564,15 +566,20 @@ def test_stream_sends_heartbeat_when_idle(client: TestClient, monkeypatch) -> No
     login_demo(client)
     discussion = new_discussion(client)  # active 状态，流不会自己结束
     base = f"/api/discussions/{discussion['id']}"
+    user_id = client.get("/api/auth/status").json()["user_id"]
+    store = client.app.state.discussions
 
-    saw_heartbeat = False
-    with client.stream("GET", f"{base}/stream") as response:
-        assert response.status_code == 200
-        for line in response.iter_lines():
-            if line.strip() == ": keep-alive":
-                saw_heartbeat = True
-                break
-    assert saw_heartbeat, "空闲连接应收到心跳帧"
+    stopper = threading.Timer(
+        0.35, lambda: store.stop_discussion(user_id, discussion["id"])
+    )
+    stopper.start()
+    try:
+        text = _collect_stream(client, f"{base}/stream")
+    finally:
+        stopper.cancel()
+
+    assert ": keep-alive" in text, "空闲连接应收到心跳帧"
+    assert "stream.end" in text
 
 
 def test_stream_times_out_and_closes(client: TestClient, monkeypatch) -> None:
@@ -599,32 +606,29 @@ def test_stream_times_out_and_closes(client: TestClient, monkeypatch) -> None:
 def test_stream_releases_slot_after_client_disconnects(client: TestClient, monkeypatch) -> None:
     """客户端断开后必须归还订阅名额，否则连几次就把所有名额占死。
 
-    用只有 1 个名额的信号量：第一次连接读一帧后断开，第二次仍应能连上。
+    Starlette 的 TestClient 会把流缓冲到应用结束，无法在测试里真正“中途断开”，
+    所以直接驱动异步生成器：收到第一帧后 `aclose()`，再检查信号量是否归还。
     """
     from app import discussions
 
-    monkeypatch.setattr(discussions, "_STREAM_SLOTS", threading.BoundedSemaphore(1))
-    monkeypatch.setattr(discussions, "POLL_INTERVAL_SECONDS", 0.05)
+    slots = threading.BoundedSemaphore(1)
+    monkeypatch.setattr(discussions, "_STREAM_SLOTS", slots)
+    monkeypatch.setattr(discussions, "POLL_INTERVAL_SECONDS", 0.02)
     login_demo(client)
     discussion = new_discussion(client)
-    base = f"/api/discussions/{discussion['id']}"
+    user_id = client.get("/api/auth/status").json()["user_id"]
+    store = client.app.state.discussions
 
-    with client.stream("GET", f"{base}/stream") as response:
-        assert response.status_code == 200
-        next(response.iter_lines(), None)  # 读一帧后立刻断开
+    # 模拟 endpoint 已经占用了唯一的名额。
+    assert slots.acquire(blocking=False)
 
-    # 等生成器被回收、finally 归还名额
-    released = False
-    for _ in range(40):
-        if discussions._STREAM_SLOTS.acquire(blocking=False):
-            discussions._STREAM_SLOTS.release()
-            released = True
-            break
-        time.sleep(0.05)
-    assert released, "断开后名额没有被归还"
+    async def read_one_then_disconnect() -> None:
+        frames = discussions._stream_frames(store, user_id, discussion["id"], 0)
+        await frames.__anext__()  # 至少收到一帧
+        await frames.aclose()  # 模拟客户端断开
 
-    with client.stream("GET", f"{base}/stream") as second:
-        assert second.status_code == 200, "名额已归还，第二次连接不应被拒"
+    asyncio.run(read_one_then_disconnect())
+    assert slots.acquire(blocking=False), "断开后名额没有被归还"
 
 
 # ---------------- 隔离 ----------------

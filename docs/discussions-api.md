@@ -289,6 +289,42 @@ POST /api/discussions/{id}/stop
 POST /api/discussions/{id}/finish
 ```
 
+### 5.7 推进 AI 发言（E 模块，2026-11-18 新增）
+
+D 模块只负责存储，不生成内容。E 模块在 D 之上做角色调度，代码在
+`api/app/discussion_engine.py`、`api/app/providers/model.py` 和
+`api/app/discussion_engine_api.py`。
+
+```
+POST /api/discussions/{id}/advance
+```
+
+响应 `200`：
+
+```json
+{
+  "advanced": true,
+  "reason": null,
+  "role_id": "skeptic",
+  "message": {"id": "…", "seq": 2, "role_id": "skeptic", "body": "…", "status": "completed"},
+  "discussion": {"id": "…", "turn_index": 1, "status": "active", "participants": [{"role_id": "skeptic", "display_name": "质疑者", "seat": 1}, "…"]}
+}
+```
+
+规则：
+
+- 一次只推进一位在座 AI 角色；`user` 永远不会被自动选中。
+- 选人顺序：用户最后一条消息点名了某个角色（显示名或 `role_id`）→ 选它；否则按关键词打分（问句/证据偏向质疑者，总结/收敛偏向归纳者，假设/另一种可能偏向探索者）；仍不明显时选最久没说过话的角色。
+- `turn_index` 只在 AI 发言写回时 +1，并与消息在同一个事务里更新；用户消息不推进轮次。
+- 达到 `max_turns` 自动 `finish`，返回 `advanced=false, reason="max_turns"`。
+- 暂停、停止、没有 AI 角色时不写消息，返回 `advanced=false`；手动接口在暂停时返回 `409 DISCUSSION_PAUSED`。
+- 同一条讨论正在生成时再次推进返回 `409 ENGINE_BUSY`；生成期间用户停止或暂停，结果直接丢弃，不写库。
+- 模型失败返回 `502 MODEL_ERROR`，不写失败消息。
+
+**自动推进**：`POST /messages` 增加可选字段 `advance`（默认 `false`）。网页端设为 `true` 时，用户发言成功后由后台任务推进一轮；相同 `client_msg_id` 的幂等重试不会重复生成。实现上只有“新建消息”才排任务。
+
+**模型**：当前 `THINKSPACE_MODEL_PROVIDER=fake`，使用确定性假模型，不联网、不耗额度，只用于验证调度链路；接知乎直答时新增 `ModelClient` 实现并在 `build_model` 切换。界面必须标明这是本地模拟，不能当作真实 AI 回复。
+
 ## 6. 错误码
 
 | HTTP | code | 含义 |
@@ -346,7 +382,7 @@ source.addEventListener('stream.end', () => source.close());
 
 ## 8. 已验证与未验证
 
-已验证（`pytest api/tests`，**66 passed**，其中讨论模块 56 个）：
+已验证（2026-11-18：`pytest api/tests`，**81 passed**。其中讨论模块 56 个，E 模块 15 个；`anyio` 已升级到 4.16 并在 `api/requirements.txt` 约束 `>=4`，SSE 的 `abandon_on_cancel` 不再缺依赖）：
 
 - 创建：默认座位、角色子集仍保留 user、未知角色 422、`max_turns` 边界、主题空白/超长、**写锁超时返回 503 DATABASE_BUSY**
 - 认证与隔离：11 个端点未登录全部 401；跨用户读/写/暂停/停止/订阅全部 404；列表互不可见
