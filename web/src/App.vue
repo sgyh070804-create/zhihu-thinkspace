@@ -5,9 +5,11 @@ import { RequestScope } from "./request-scope";
 import UserProfile from "./components/UserProfile.vue";
 import ExperienceGallery from "./components/ExperienceGallery.vue";
 import ThoughtBranches from "./components/ThoughtBranches.vue";
+import ThoughtBubblePage from "./components/ThoughtBubblePage.vue";
 import type { ArticleGroup, AuthStatus, Bubble, ContentItem, Favlist, Followee, Profile } from "./types";
 
 const isBranchPage = window.location.pathname.replace(/\/$/, "") === "/thought-branches";
+const isBubblePage = window.location.pathname.replace(/\/$/, "") === "/thought-bubbles";
 
 type TabKey = "favorites" | "creations" | "followees" | "likes" | "comments" | "bubbles";
 type ViewKey = "home" | "profile" | "experiences";
@@ -169,7 +171,7 @@ async function retry() { await retryOperation(); }
 function formatDate(timestamp?: number) { return timestamp ? new Date(timestamp * 1000).toLocaleString("zh-CN") : "未标注时间"; }
 
 onMounted(async () => {
-  if (isBranchPage) return;
+  if (isBranchPage || isBubblePage) return;
   if (new URLSearchParams(window.location.search).get("auth") === "success") window.history.replaceState({}, "", "/");
   await loadStatus();
 });
@@ -177,7 +179,8 @@ onBeforeUnmount(() => { authRequest.invalidate(); dataRequests.forEach(request =
 </script>
 
 <template>
-  <ThoughtBranches v-if="isBranchPage" />
+  <ThoughtBubblePage v-if="isBubblePage" />
+  <ThoughtBranches v-else-if="isBranchPage" />
   <main v-else class="shell">
     <header class="topbar">
       <a class="brand" href="/" aria-label="ThinkSpace 首页">
@@ -188,6 +191,7 @@ onBeforeUnmount(() => { authRequest.invalidate(); dataRequests.forEach(request =
         <button :class="{ active: view !== 'experiences' }" @click="view = 'home'">资料与想法</button>
         <button :class="{ active: view === 'experiences' }" @click="view = 'experiences'">思考体验</button>
         <a href="/thought-branches">思想分叉</a>
+        <a href="/thought-bubbles">思维泡泡</a>
       </nav>
       <div v-if="status?.authenticated" class="account-actions">
         <button

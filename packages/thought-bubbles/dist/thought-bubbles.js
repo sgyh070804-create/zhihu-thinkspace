@@ -29,7 +29,7 @@
     return mix(env,vec3(1.,.985,.96),clamp(box1*.96+box2*.85+window*.8,0.,1.));
   }
   void main(){vec2 p=vec2(gl_FragCoord.x,size.y-gl_FragCoord.y);float best=10000.;vec4 b=vec4(0.),sh=vec4(0.),contact=vec4(0.);int idx=0;
-    for(int i=0;i<24;i++){if(i>=count)break;vec4 bi=bubbles[i];vec2 local=local2(p-bi.xy,shapes[i]);float d=length(local)-bi.z*membraneRadius(float(i),atan(local.y,local.x));if(d<best){best=d;b=bi;sh=shapes[i];contact=contacts[i];idx=i;}if(float(i)==pair.x){ba=bi;sa=shapes[i];}if(float(i)==pair.y){bb=bi;sb=shapes[i];}}
+    for(int i=0;i<24;i++){if(i>=count)break;vec4 bi=bubbles[i];if(float(i)==pair.x){ba=bi;sa=shapes[i];}if(float(i)==pair.y){bb=bi;sb=shapes[i];}vec2 local=local2(p-bi.xy,shapes[i]);float distance=length(local);if(distance>bi.z*1.5+4.)continue;float d=distance-bi.z*membraneRadius(float(i),atan(local.y,local.x));if(d<best){best=d;b=bi;sh=shapes[i];contact=contacts[i];idx=i;}}
     if(best>max(3.,b.z*.20))discard;
     vec2 q=(p-b.xy)/b.z;float theta=atan(q.y,q.x),rho=membraneRadius(float(idx),theta);float r2=dot(q,q)/(rho*rho);vec3 n;float coverage=1.;bool liquid=false;
     if(pair.x>=0.&&bridge>.001){float bound=min(length(p-ba.xy)-ba.z*1.5,length(p-bb.xy)-bb.z*1.5);liquid=bound<0.&&(float(idx)==pair.x||float(idx)==pair.y);}
@@ -65,8 +65,8 @@
     let program;try{program=gl.createProgram();const vs=compile(gl.VERTEX_SHADER,vertex),fs=compile(gl.FRAGMENT_SHADER,fragment);gl.attachShader(program,vs);gl.attachShader(program,fs);gl.linkProgram(program);gl.deleteShader(vs);gl.deleteShader(fs);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error('Shader link failed');}catch(e){console.warn('ThoughtBubbles: CSS fallback',e);return null;}
     gl.useProgram(program);const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);const a=gl.getAttribLocation(program,'p');gl.enableVertexAttribArray(a);gl.vertexAttribPointer(a,2,gl.FLOAT,false,0,0);
     const u={};['size','bubbles[0]','count','pair','clock','shapes[0]','bridge','contacts[0]','membrane'].forEach(k=>u[k]=gl.getUniformLocation(program,k));const data=new Float32Array(MAX*4),shapeData=new Float32Array(MAX*4),contactData=new Float32Array(MAX*4);
-    const texture=gl.createTexture();gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,texture);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);const pixels=new Uint8Array(65*24*4);gl.uniform1i(u.membrane,0);
-    return {draw(bs,w,h,pair,t,dpr,bridge,camera,focused){const pw=Math.round(w*dpr),ph=Math.round(h*dpr);if(canvas.width!==pw||canvas.height!==ph){canvas.width=pw;canvas.height=ph;gl.viewport(0,0,pw,ph);}data.fill(0);pixels.fill(128);bs.forEach((b,row)=>{const m=physics.ensure(b);for(let j=0;j<65;j++){const n=(row*65+j)*4;const value=Math.round((.5+m.offset[j%64]*.9)*65535);pixels[n]=value>>8;pixels[n+1]=value&255;pixels[n+3]=255;}});gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,texture);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,65,24,0,gl.RGBA,gl.UNSIGNED_BYTE,pixels);bs.forEach((b,i)=>data.set([(b.x*camera.scale+camera.x)*dpr,(b.y*camera.scale+camera.y)*dpr,b.r*b.scale*camera.scale*dpr,b.alpha*(b===focused?1:1-camera.amount*.90)],i*4));bs.forEach((b,i)=>shapeData.set([1,0,1,1],i*4));bs.forEach((b,i)=>contactData.set([b.cnx||0,b.cny||0,(b.contactDistance||b.r)*camera.scale*dpr,b.stress||0],i*4));gl.uniform4fv(u['contacts[0]'],contactData);gl.uniform4fv(u['shapes[0]'],shapeData);gl.uniform1f(u.bridge,bridge||0);gl.uniform2f(u.size,pw,ph);gl.uniform4fv(u['bubbles[0]'],data);gl.uniform1i(u.count,bs.length);gl.uniform2f(u.pair,pair[0],pair[1]);gl.uniform1f(u.clock,t);gl.drawArrays(gl.TRIANGLES,0,6);},destroy(){gl.deleteTexture(texture);gl.deleteBuffer(buffer);gl.deleteProgram(program);}};
+    const texture=gl.createTexture();gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,texture);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);const pixels=new Uint8Array(65*24*4);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,65,24,0,gl.RGBA,gl.UNSIGNED_BYTE,pixels);gl.uniform1i(u.membrane,0);
+    return {draw(bs,w,h,pair,t,dpr,bridge,camera,focused){const pw=Math.round(w*dpr),ph=Math.round(h*dpr);if(canvas.width!==pw||canvas.height!==ph){canvas.width=pw;canvas.height=ph;gl.viewport(0,0,pw,ph);}data.fill(0);pixels.fill(128);bs.forEach((b,row)=>{const m=physics.ensure(b);for(let j=0;j<65;j++){const n=(row*65+j)*4;const value=Math.round((.5+m.offset[j%64]*.9)*65535);pixels[n]=value>>8;pixels[n+1]=value&255;pixels[n+3]=255;}});gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,texture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,65,24,gl.RGBA,gl.UNSIGNED_BYTE,pixels);bs.forEach((b,i)=>data.set([(b.x*camera.scale+camera.x)*dpr,(b.y*camera.scale+camera.y)*dpr,b.r*b.scale*camera.scale*dpr,b.alpha*(b===focused?1:1-camera.amount*.90)],i*4));bs.forEach((b,i)=>shapeData.set([1,0,1,1],i*4));bs.forEach((b,i)=>contactData.set([b.cnx||0,b.cny||0,(b.contactDistance||b.r)*camera.scale*dpr,b.stress||0],i*4));gl.uniform4fv(u['contacts[0]'],contactData);gl.uniform4fv(u['shapes[0]'],shapeData);gl.uniform1f(u.bridge,bridge||0);gl.uniform2f(u.size,pw,ph);gl.uniform4fv(u['bubbles[0]'],data);gl.uniform1i(u.count,bs.length);gl.uniform2f(u.pair,pair[0],pair[1]);gl.uniform1f(u.clock,t);gl.drawArrays(gl.TRIANGLES,0,6);},destroy(){gl.deleteTexture(texture);gl.deleteBuffer(buffer);gl.deleteProgram(program);}};
   }
   function create(host,options={}){
     if(typeof host==='string')host=document.querySelector(host);if(!host)throw Error('ThoughtBubbles: container missing');
@@ -76,14 +76,15 @@
     const canvas=document.createElement('canvas');canvas.className='tb-canvas';canvas.setAttribute('aria-hidden','true');root.appendChild(canvas);
     const labels=document.createElement('div');labels.className='tb-labels';root.appendChild(labels);
     const hint=document.createElement('div');hint.className='tb-hint';hint.setAttribute('role','status');hint.setAttribute('aria-live','polite');root.appendChild(hint);
-    const back=document.createElement('button');back.type='button';back.className='tb-back';back.textContent='← 回到思绪空间';back.hidden=true;root.appendChild(back);back.addEventListener('click',closeFocus);
+    const back=document.createElement('button');back.type='button';back.className='tb-back';back.textContent='回到思绪空间';back.hidden=true;root.appendChild(back);back.addEventListener('click',closeFocus);
+    if(opts.externalReader)root.classList.add('tb-external-reader');
     let focused=null,viewed=null,focusStarted=0;const camera={x:0,y:0,scale:1,amount:0,vx:0,vy:0,vs:0,va:0};
     let render=renderer(canvas);if(!render)root.classList.add('tb-fallback');
     let bs=[],w=0,h=0,raf=0,last=0,time=0,drag=null,candidate=null,dwell=0,paused=false,dead=false,busy=false,anim=null,undoState=null,dirty=true,frames=[];
     const reduced=matchMedia('(prefers-reduced-motion: reduce)');
     const snapshot=()=>bs.map(b=>Object.assign({},b.item,{x:b.x/w,y:b.y/h}));
-    function focus(id){if(busy||dead)return false;const b=bs.find(v=>v.item.id===id);if(!b)return false;focused=b;viewed=b;focusStarted=performance.now();bs.forEach(v=>{v.el.classList.toggle('tb-focused',v===b);v.el.style.pointerEvents=v===b?'auto':'none';v.el.tabIndex=v===b?0:-1;});root.classList.add('tb-inside');back.hidden=false;hint.textContent='在泡泡里，慢慢读 · 点击空白处或按 Esc 返回';dirty=true;return true;}
-    function closeFocus(){if(!focused)return;focused=null;bs.forEach(b=>{b.el.style.pointerEvents='';b.el.tabIndex=0;});back.hidden=true;hint.textContent='缓缓游动的想法 · 点击进入，拖动融合';dirty=true;}
+    function focus(id){if(busy||dead)return false;const b=bs.find(v=>v.item.id===id);if(!b)return false;focused=b;viewed=b;focusStarted=performance.now();bs.forEach(v=>{v.el.classList.toggle('tb-focused',v===b);v.el.style.pointerEvents=v===b&&!opts.externalReader?'auto':'none';v.el.tabIndex=v===b&&!opts.externalReader?0:-1;});root.classList.add('tb-inside');back.hidden=!!opts.externalReader;hint.textContent='在泡泡里，慢慢读 · 点击空白处或按 Esc 返回';dirty=true;opts.onFocusChange?.(Object.assign({},b.item));return true;}
+    function closeFocus(){if(!focused)return;focused=null;bs.forEach(b=>{b.el.style.pointerEvents='';b.el.tabIndex=0;});back.hidden=true;hint.textContent='缓缓游动的想法 · 点击进入，拖动融合';dirty=true;opts.onFocusChange?.(null);}
     function selected(b){if(!focused){focus(b.item.id);opts.onSelect?.(Object.assign({},b.item));}}
     const keydown=e=>{if(e.key==='Escape')closeFocus();};root.addEventListener('keydown',keydown);
     root.addEventListener('click',e=>{if(focused&&performance.now()-focusStarted>450&&(e.target===root||e.target===canvas||e.target===labels))closeFocus();});
@@ -91,10 +92,10 @@
     function resize(){w=root.clientWidth;h=root.clientHeight;bs.forEach(b=>{b.r=radius(b.item);b.x=clamp(b.x,b.r,w-b.r);b.y=clamp(b.y,b.r,h-b.r);});dirty=true;}
     function radius(item){return clamp(item.radius||Math.min(w,h)*.18,48,Math.min(200,w*.30,h*.30));}
     function add(item,i){if(bs.length>=MAX)throw Error('ThoughtBubbles: maximum 24 visible bubbles');if(!item.id||bs.some(b=>b.item.id===item.id))throw Error('ThoughtBubbles: ids must be unique and non-empty');
-      const r=radius(item),angle=i*2.39996;const b={item:Object.assign({},item),r,x:clamp(item.x!=null?item.x*w:w*.5+Math.cos(angle)*w*.30,r,w-r),y:clamp(item.y!=null?item.y*h:h*.5+Math.sin(angle)*h*.29,r,h-r),vx:0,vy:0,seed:Math.random()*100,angle:0,squash:0,squashV:0,stress:0,textAlpha:1,scale:1,alpha:1,birth:item.generated?performance.now():null};
-      const el=document.createElement('button');el.type='button';el.className='tb-bubble';el.setAttribute('aria-label',item.text+'。按 Enter 查看；通过演示页的融合选择也可合成。');
+      const r=radius(item),angle=i*2.39996;const b={item:Object.assign({},item),r,x:clamp(item.x!=null?item.x*w:w*.5+Math.cos(angle)*w*.30,r,w-r),y:clamp(item.y!=null?item.y*h:h*.5+Math.sin(angle)*h*.29,r,h-r),vx:0,vy:0,seed:Math.random()*100,angle:0,squash:0,squashV:0,stress:0,textAlpha:1,scale:1,alpha:1,birth:item.generated||opts.animateEntrance?performance.now():null};
+      const el=document.createElement('button');el.type='button';el.className='tb-bubble';el.setAttribute('aria-label',item.text+'。按 Enter 阅读。');
       if(item.generated){const tag=document.createElement('span');tag.className='tb-new';tag.textContent='新的观点';el.appendChild(tag);}
-      const text=document.createElement('span');text.className='tb-thought';text.textContent=item.text;el.appendChild(text);const source=document.createElement('span');source.className='tb-source';source.textContent=item.source||'一颗思绪';el.appendChild(source);labels.appendChild(el);b.el=el;
+      const text=document.createElement('span');text.className='tb-thought';text.textContent=item.text;el.appendChild(text);const source=document.createElement('span');source.className='tb-source';source.textContent=item.source||'一颗思绪';el.appendChild(source);labels.appendChild(el);b.el=el;b.textEl=text;b.sourceEl=source;
       
       el.addEventListener('pointerdown',e=>{if(busy||focused||camera.amount>.1||drag||e.button!==0)return;const rect=root.getBoundingClientRect();drag={b,id:e.pointerId,ox:e.clientX-rect.left-b.x,oy:e.clientY-rect.top-b.y,sx:e.clientX,sy:e.clientY,px:e.clientX,py:e.clientY,pt:performance.now(),moved:false};b.vx=b.vy=0;el.setPointerCapture(e.pointerId);el.style.zIndex=3;});
       el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();selected(b);}});
@@ -144,7 +145,7 @@
           an.a.el.remove();an.b.el.remove();bs=bs.filter(b=>b!==an.a&&b!==an.b);const child=add(Object.assign({},an.result,{generated:true,radius:an.rr,x:an.x/w,y:an.y/h,parents:[an.a.item.id,an.b.item.id]}),bs.length);child.birth=null;child.reveal=performance.now();physics.impulse(child,.55,Math.atan2(dy,dx));anim=null;an.resolve();
         }
       }
-      for(const b of bs){if(b.birth!==null){const t=clamp((now-b.birth)/(reduced.matches?120:750),0,1);b.scale=.72+.28*ease(t);b.alpha=ease(t);dirty=true;if(t===1)b.birth=null;}}
+      for(const b of bs){if(b.birth!==null){const t=reduced.matches?1:clamp((now-b.birth)/750,0,1);b.scale=.72+.28*ease(t);b.alpha=ease(t);dirty=true;if(t===1)b.birth=null;}}
       for(const b of bs){if(b.reveal){b.textAlpha=ease(clamp((now-b.reveal)/650,0,1));if(b.textAlpha===1)b.reveal=null;}if(!anim||(b!==anim.a&&b!==anim.b)){b.stress=0;b.cnx=0;b.cny=0;b.contactDistance=b.r;}}
       if(moving){for(const b of bs){if(drag?.b===b||(anim&&(b===anim.a||b===anim.b)))continue;b.vx+=(Math.sin(time*.35+b.seed)*4.5-b.vx*.8)*dt;b.vy+=(Math.cos(time*.29+b.seed*1.3)*4-b.vy*.8)*dt;b.x+=b.vx*dt*opts.speed;b.y+=b.vy*dt*opts.speed;}}
       {for(let i=0;i<bs.length;i++)for(let j=i+1;j<bs.length;j++){
@@ -165,13 +166,13 @@
       if(!reduced.matches)dirty=true;
       if(drag){const next=pickCandidate(drag.b);if(candidate!==next){candidate=next;dwell=0;}if(next)dwell+=dt;hint.textContent=next?'已接触 · 松手融合':'拖到另一颗泡泡边缘即可融合';dirty=true;}
       if(!busy&&!drag&&!hint.textContent)hint.textContent='缓缓游动的想法 · 拖动靠近，融合新观点';
-      if(dirty){const pair=anim?[bs.indexOf(anim.a),bs.indexOf(anim.b)]:[-1,-1];render?.draw(bs,w,h,pair,time,Math.min(devicePixelRatio||1,opts.maxDpr),anim?anim.neck:0,camera,viewed);for(const b of bs){b.el.style.width=b.el.style.height=b.r*camera.scale*2+'px';const cx=b.x*camera.scale+camera.x,cy=b.y*camera.scale+camera.y;const zoom=b.scale;
+      if(dirty){const pair=anim?[bs.indexOf(anim.a),bs.indexOf(anim.b)]:[-1,-1];render?.draw(bs,w,h,pair,time,Math.min(devicePixelRatio||1,opts.maxDpr),anim?anim.neck:0,camera,viewed);for(const b of bs){const diameter=Math.round(b.r*camera.scale*2*10)/10;if(b.diameter!==diameter){b.el.style.width=b.el.style.height=diameter+'px';b.diameter=diameter;}const cx=b.x*camera.scale+camera.x,cy=b.y*camera.scale+camera.y;const zoom=b.scale;
         b.el.style.transform='translate3d('+(cx-b.r*camera.scale)+'px,'+(cy-b.r*camera.scale)+'px,0) scale('+zoom+')';
-        b.el.style.opacity=b.alpha*b.textAlpha*(b===viewed?1:1-camera.amount*.96);
-        b.el.style.filter=b===viewed?'none':'blur('+(camera.amount*3)+'px)';b.el.style.zIndex=b===viewed?'5':'';
-        const text=b.el.querySelector('.tb-thought'),source=b.el.querySelector('.tb-source');
-        text.style.fontSize=b===viewed?(16+4*camera.amount)+'px':'';source.style.fontSize=b===viewed?'11px':'';text.style.color=b===viewed?'rgb('+[52,53,69].map((v,i)=>Math.round(v+([241,238,248][i]-v)*camera.amount)).join(',')+')':'';
-        text.style.maxHeight=b===viewed?(b.r*camera.scale*1.15)+'px':'';}dirty=false;}
+        b.el.style.opacity=b.alpha*b.textAlpha*(opts.externalReader?Math.pow(1-clamp(camera.amount,0,1),3):b===viewed?1:1-camera.amount*.96);
+        b.el.style.zIndex=b===viewed?'5':'';
+        const text=b.textEl,source=b.sourceEl;
+        if(!opts.externalReader){text.style.fontSize=b===viewed?(16+4*camera.amount)+'px':'';source.style.fontSize=b===viewed?'11px':'';text.style.color=b===viewed?'rgb('+[52,53,69].map((v,i)=>Math.round(v+([241,238,248][i]-v)*camera.amount)).join(',')+')':'';
+        text.style.maxHeight=b===viewed?(b.r*camera.scale*1.15)+'px':'';}}dirty=false;}
     }
     canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();render=null;root.classList.add('tb-fallback');});
     const observer=new ResizeObserver(resize);observer.observe(root);resize();setItems(opts.items);raf=requestAnimationFrame(tick);

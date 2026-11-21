@@ -8,6 +8,8 @@ AI 阅读思考助手与个人收藏知识库：收藏问答、拓展视角、�
 
 主站已提供资料区和「思考体验」入口，泡泡动画、三维讨论室可在主站内打开。当前完成本地演示与离线检查，真实知乎 OAuth 和 AI 回复仍待联调；未部署公网网站。最新修整与验证见 [网站 review 记录](docs/reviews/2026-11-18-site-review.md)。
 
+思维泡泡已有独立页面 `/thought-bubbles`，可读取当前账号保存的泡泡，支持沉浸阅读、手记筛选、用户书写的连接草稿与实时融合。采用统一冷灰蓝主题和渐入、卡片切换、轻弹性过渡。[实际截图、运行方式与本次验证](docs/thought-bubbles/README.md)。连接草稿目前仅留在本页，可导出，尚未同步服务器。
+
 - 知乎 OAuth Authorization Code 接入骨架：`app_key`、授权码交换和 OAuth token 都只留在服务端。
 - 官方用户数据适配：公开收藏夹、收藏条目、近期收藏、用户公开创作、关注用户。
 - 能力边界展示：截至 2026-11-14 查阅的官方公开用户数据文档未提供“点赞历史”和“评论历史”接口，页面明确标注，不用互动计数冒充历史。
@@ -93,7 +95,7 @@ docs/       项目计划
 
 ## 灵感泡泡动画组件（首版）
 
-独立动画组件位于 [`packages/thought-bubbles`](packages/thought-bubbles)，包含透明薄膜材质、连续膜节点形变、拖动融合和内景阅读。无需 OAuth 即可运行演示；主站「思考体验」已接入演示入口，真实泡泡记录与融合结果的业务同步仍待实现。
+独立动画组件位于 [`packages/thought-bubbles`](packages/thought-bubbles)，包含透明薄膜材质、连续膜节点形变、拖动融合和内景阅读。主站泡泡入口现已转为正式前端页面，账号记录读取已接入；无需 OAuth 的独立 `demo.html` 继续保留。服务端融合关系和草稿同步仍待实现，详见 [页面交接](docs/thought-bubbles/README.md)。
 
 - [运行方式、实际测试截图与验证范围](docs/bubble-animation/README.md)
 - [组件接入说明与 API](packages/thought-bubbles/README.md)
