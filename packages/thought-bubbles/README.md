@@ -86,6 +86,8 @@ Thought 必填 id/text，可选 source/radius/x/y/generated/parents。ID 唯一�
 
 选项：items/onSelect/onMerge/onChange/onError；maxDpr 默认 1.35，speed 默认 1，motionRate 默认 1。
 
+宿主自定义阅读界面时可设 `externalReader: true`，通过 `onFocusChange(item|null)` 同步阅读状态；`focus(id)`、`closeFocus()` 和点击背景均会通知。镜头和薄膜仍由组件实时驱动，组件内文字随镜头淡出，隐藏按钮退出 Tab 顺序。`animateEntrance: true` 可为数据进入加入透明度与尺度过渡。两项默认关闭，保持旧演示兼容。主站接入见 [思维泡泡页面](../../docs/thought-bubbles/README.md)。
+
 ## 性能
 
 单 WebGL 画布；变换参数由 CPU 预计算；普通泡泡解析计算曲面，仅融合区域多步 ray marching。最多 24 个可见泡泡，建议 5–12 个；低性能设备可将 maxDpr 设为 1，数据更多时由宿主筛选或分页。
