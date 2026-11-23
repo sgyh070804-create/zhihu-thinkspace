@@ -144,6 +144,7 @@ onBeforeUnmount(() => { clearTimeout(saveTimer); persist(); resizeObserver?.disc
       <a class="thought-brand" href="/" aria-label="返回 ThinkSpace 主站"><span>t.</span><strong>ThinkSpace<small>留一点空间，给自己的判断</small></strong></a>
       <nav aria-label="思考空间导航">
         <a href="/"><BranchIcon name="home" />资料与想法</a>
+        <a href="/thought-bubbles"><BranchIcon name="thought" />思维泡泡</a>
         <span class="thought-current"><BranchIcon name="branch" />思想分叉</span>
       </nav>
       <div class="exploration-heading"><span>我的探索</span><span>{{ draft.explorations.length }}</span></div>

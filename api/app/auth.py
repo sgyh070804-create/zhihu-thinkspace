@@ -72,12 +72,12 @@ async def zhihu_callback(
         raise HTTPException(400, detail="知乎回调缺少 authorization_code。")
     token = await request.app.state.zhihu.exchange_authorization_code(auth_code)
     profile = await request.app.state.zhihu.get_user_profile(token["access_token"])
-    raw_session, session_user = store_of(request).create_session(
-        user_id=user_id,
+    raw_session, _ = store_of(request).create_zhihu_session(
+        profile=profile,
         oauth_token=token["access_token"],
         oauth_expires_at=token["expires_at"],
+        candidate_user_id=user_id,
     )
-    store_of(request).save_profile(session_user, profile)
     response = RedirectResponse(f"{settings.web_url}/?auth=success", status_code=302)
     _set_cookie(response, SESSION_COOKIE, raw_session, 30 * 24 * 3600, settings.secure_cookie)
     response.delete_cookie(OAUTH_TX_COOKIE, path="/")

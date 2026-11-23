@@ -11,6 +11,6 @@
   ],
   "license": "UNLICENSED",
   "scripts": {
-    "test": "node tests/physics.cjs"
+    "test": "node tests/physics.cjs && node --test tests/lifecycle.cjs"
   }
 }

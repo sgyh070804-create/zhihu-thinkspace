@@ -6,6 +6,8 @@ import secrets
 import sqlite3
 import time
 import uuid
+from contextlib import contextmanager
+from collections.abc import Iterator
 from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -27,11 +29,16 @@ class Store:
         self.cipher = Fernet(base64.urlsafe_b64encode(digest))
         self._init_schema()
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.database_path, timeout=10)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        return conn
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON")
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _init_schema(self) -> None:
         with self._connect() as conn:
@@ -112,34 +119,56 @@ class Store:
         conn.execute("INSERT INTO users(id, created_at) VALUES (?, ?)", (user_id, int(time.time())))
         return user_id
 
-    def create_session(
-        self,
-        user_id: str | None = None,
-        oauth_token: str | None = None,
-        oauth_expires_at: int | None = None,
-        demo: bool = False,
+    def _insert_session(
+        self, conn: sqlite3.Connection, user_id: str | None,
+        oauth_token: str | None, oauth_expires_at: int | None, demo: bool,
     ) -> tuple[str, str]:
         raw_token = secrets.token_urlsafe(32)
         encrypted = self.cipher.encrypt(oauth_token.encode("utf-8")).decode("ascii") if oauth_token else None
-        with self._connect() as conn:
-            if not user_id:
-                user_id = self._new_user(conn)
-            elif not conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone():
-                user_id = self._new_user(conn)
-            conn.execute(
-                """INSERT INTO sessions(
-                    token_hash, user_id, oauth_token_encrypted, oauth_expires_at, is_demo, expires_at
-                ) VALUES (?, ?, ?, ?, ?, ?)""",
-                (
-                    self._hash(raw_token),
-                    user_id,
-                    encrypted,
-                    oauth_expires_at,
-                    int(demo),
-                    int(time.time()) + SESSION_TTL,
-                ),
-            )
+        if not user_id or not conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone():
+            user_id = self._new_user(conn)
+        conn.execute(
+            """INSERT INTO sessions(
+                token_hash, user_id, oauth_token_encrypted, oauth_expires_at, is_demo, expires_at
+            ) VALUES (?, ?, ?, ?, ?, ?)""",
+            (self._hash(raw_token), user_id, encrypted, oauth_expires_at, int(demo), int(time.time()) + SESSION_TTL),
+        )
         return raw_token, user_id
+
+    def create_session(
+        self, user_id: str | None = None, oauth_token: str | None = None,
+        oauth_expires_at: int | None = None, demo: bool = False,
+    ) -> tuple[str, str]:
+        with self._connect() as conn:
+            return self._insert_session(conn, user_id, oauth_token, oauth_expires_at, demo)
+
+    def create_zhihu_session(
+        self, profile: dict, oauth_token: str, oauth_expires_at: int,
+        candidate_user_id: str | None = None,
+    ) -> tuple[str, str]:
+        """Resolve verified provider identity atomically; never reassign another account's data."""
+        uid = str(profile.get("uid") or "").strip()
+        if not uid:
+            raise ValueError("知乎用户标识不能为空。")
+        with self._connect() as conn:
+            # Serialize lookup + creation even when two browsers finish OAuth together.
+            conn.execute("BEGIN IMMEDIATE")
+            existing = conn.execute(
+                """SELECT p.user_id FROM profiles p JOIN users u ON u.id = p.user_id
+                   WHERE p.zhihu_uid = ? ORDER BY u.created_at, p.user_id LIMIT 1""", (uid,),
+            ).fetchone()
+            user_id = existing["user_id"] if existing else None
+            if not user_id and candidate_user_id:
+                candidate = conn.execute(
+                    "SELECT p.zhihu_uid FROM users u LEFT JOIN profiles p ON p.user_id = u.id WHERE u.id = ?",
+                    (candidate_user_id,),
+                ).fetchone()
+                # An unbound demo user can attach once; an existing provider account cannot change UID.
+                if candidate and candidate["zhihu_uid"] in (None, uid):
+                    user_id = candidate_user_id
+            raw_token, user_id = self._insert_session(conn, user_id, oauth_token, oauth_expires_at, False)
+            self._save_profile(conn, user_id, {**profile, "uid": uid})
+            return raw_token, user_id
 
     def get_session(self, raw_token: str) -> dict | None:
         if not raw_token:
@@ -192,34 +221,40 @@ class Store:
         return row["user_id"]
 
     def save_profile(self, user_id: str, profile: dict) -> None:
-        """保存授权用户的知乎基础信息；uid 以字符串无损保存。"""
+        """Update metadata without allowing a local user to change provider identity."""
         with self._connect() as conn:
-            conn.execute(
-                """INSERT INTO profiles(
-                    user_id, zhihu_uid, hash_id, fullname, headline,
-                    description, avatar_path, zhihu_url, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(user_id) DO UPDATE SET
-                    zhihu_uid = excluded.zhihu_uid,
-                    hash_id = excluded.hash_id,
-                    fullname = excluded.fullname,
-                    headline = excluded.headline,
-                    description = excluded.description,
-                    avatar_path = excluded.avatar_path,
-                    zhihu_url = excluded.zhihu_url,
-                    updated_at = excluded.updated_at""",
-                (
-                    user_id,
-                    str(profile.get("uid", "")),
-                    str(profile.get("hash_id", "")),
-                    str(profile.get("fullname", "")),
-                    str(profile.get("headline", "")),
-                    str(profile.get("description", "")),
-                    str(profile.get("avatar_path", "")),
-                    str(profile.get("url", "")),
-                    int(time.time()),
-                ),
-            )
+            previous = conn.execute("SELECT zhihu_uid FROM profiles WHERE user_id = ?", (user_id,)).fetchone()
+            if previous and previous["zhihu_uid"] != str(profile.get("uid", "")):
+                raise ValueError("不能覆盖已绑定的知乎账号。")
+            self._save_profile(conn, user_id, profile)
+
+    def _save_profile(self, conn: sqlite3.Connection, user_id: str, profile: dict) -> None:
+        conn.execute(
+            """INSERT INTO profiles(
+                user_id, zhihu_uid, hash_id, fullname, headline,
+                description, avatar_path, zhihu_url, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                zhihu_uid = excluded.zhihu_uid,
+                hash_id = excluded.hash_id,
+                fullname = excluded.fullname,
+                headline = excluded.headline,
+                description = excluded.description,
+                avatar_path = excluded.avatar_path,
+                zhihu_url = excluded.zhihu_url,
+                updated_at = excluded.updated_at""",
+            (
+                user_id,
+                str(profile.get("uid", "")),
+                str(profile.get("hash_id", "")),
+                str(profile.get("fullname", "")),
+                str(profile.get("headline", "")),
+                str(profile.get("description", "")),
+                str(profile.get("avatar_path", "")),
+                str(profile.get("url", "")),
+                int(time.time()),
+            ),
+        )
 
     def get_profile(self, user_id: str) -> dict | None:
         with self._connect() as conn:
@@ -387,8 +422,7 @@ class Store:
         `bubble_count = 0` 的孤儿文章，前端“有泡泡的文章”就会出现
         删不掉的行。两步放在同一个连接里，避免删完泡泡后文章删除失败。
         """
-        conn = self._connect()
-        try:
+        with self._connect() as conn:
             row = conn.execute(
                 "SELECT article_key FROM bubbles WHERE user_id = ? AND id = ?",
                 (user_id, bubble_id),
@@ -411,8 +445,4 @@ class Store:
                     "DELETE FROM articles WHERE user_id = ? AND article_key = ?",
                     (user_id, article_key),
                 )
-            conn.commit()
             return True
-        finally:
-            # 这个连接显式关闭，不依赖 GC；写失败时未提交的事务会回滚。
-            conn.close()
