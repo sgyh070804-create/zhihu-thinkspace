@@ -51,64 +51,6 @@
   top:0;
 }
 
-.thought-brand {
-  display:flex;
-  gap:11px;
-  text-decoration:none;
-  align-items:center;
-}
-
-.thought-brand>span {
-  width:40px;
-  height:43px;
-  border-radius:12px;
-  color:#fff;
-  background:#344e69;
-  display:grid;
-  place-items:center;
-  font:italic 700 31px Georgia,serif;
-  box-shadow:0 4px 10px #344e6912;
-}
-
-.thought-brand strong {
-  font-family:Georgia,serif;
-  font-size:21px;
-  letter-spacing:-.7px;
-}
-
-.thought-brand small {
-  display:block;
-  font:11px/1.8 "Microsoft YaHei",sans-serif;
-  letter-spacing:0;
-  color:var(--t-muted);
-  white-space:nowrap;
-}
-
-.thought-sidebar nav {
-  display:grid;
-  gap:6px;
-}
-
-.thought-sidebar nav>a,.thought-current {
-  display:flex;
-  align-items:center;
-  gap:12px;
-  padding:12px 14px;
-  text-decoration:none;
-  color:var(--t-muted);
-  border-radius:10px;
-  font-size:15px;
-}
-
-.thought-sidebar nav>a:hover {
-  background:#e5edf6;
-}
-
-.thought-current {
-  background:#dfe8f3;
-  color:#3d5f85;
-}
-
 .exploration-heading {
   display:flex;
   justify-content:space-between;
@@ -995,12 +937,6 @@
   .thought-sidebar {
     padding:24px 12px;
   }
-  .thought-brand strong {
-    font-size:18px;
-  }
-  .thought-brand small {
-    font-size:9px;
-  }
   .thought-main {
     padding:0 18px;
   }
@@ -1041,26 +977,6 @@
     border-right:0;
     border-bottom:1px solid var(--t-line);
   }
-  .thought-brand strong {
-    font-size:21px;
-  }
-  .thought-brand small {
-    font-size:10px;
-  }
-  .thought-sidebar nav {
-    display:flex;
-    align-items:center;
-    gap:0;
-  }
-  .thought-sidebar nav>a {
-    padding:8px;
-  }
-  .thought-sidebar nav>a svg {
-    display:none;
-  }
-  .thought-current {
-    display:none;
-  }
   .thought-sidebar-foot,.exploration-heading {
     display:none;
   }
@@ -1083,9 +999,6 @@
     font-size:12px!important;
     margin:0;
     padding:7px 9px;
-  }
-  .thought-sidebar nav {
-    display:none;
   }
   .thought-main {
     height:auto;

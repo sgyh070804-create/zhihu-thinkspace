@@ -165,31 +165,6 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   .qa-compose { flex-direction: column; align-items: stretch; }
 }
 
-.site-nav { display:flex; gap:6px; margin-left:auto; }
-.site-nav button, .site-nav a { border:0; border-radius:10px; padding:9px 12px; color:var(--muted); background:transparent; white-space:nowrap; }
-.site-nav button.active { color:var(--green); background:var(--green-light); }
-.hero-actions { flex-wrap:wrap; }
 .error-banner { margin-top:18px; gap:16px; }
-.load-status, .experience-note { color:var(--muted); font-size:13px; line-height:1.8; }
-.experience-gallery { padding-bottom:32px; }
-.experience-cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:22px; margin-top:26px; }
-.experience-card { display:flex; flex-direction:column; align-items:flex-start; padding:32px; }
-.experience-symbol { font-size:60px; line-height:1.2; color:var(--green); margin-bottom:20px; }
-.experience-card small { font-size:11px; color:var(--green); }
-.experience-card h2 { margin:12px 0 0; font-size:25px; font-weight:600; }
-.experience-card p { color:var(--muted); line-height:1.9; min-height:72px; }
-.experience-card .button { margin-top:auto; }
-.experience-toolbar { display:flex; align-items:center; gap:15px; flex-wrap:wrap; }
-.experience-toolbar span, .experience-toolbar a { font-size:12px; color:var(--muted); }
-.experience-toolbar a { margin-left:auto; }
-.experience-frame { display:block; width:100%; height:800px; height:max(740px,80dvh); border:1px solid var(--line); border-radius:18px; background:#edf1f5; }
-@media(max-width:760px) {
-  .topbar { flex-wrap:wrap; padding:18px 0; gap:14px; }
-  .site-nav { margin-left:0; }
-  .account-actions { width:100%; flex-wrap:wrap; }
-  .experience-cards { grid-template-columns:1fr; }
-  .experience-card { padding:24px; }
-  .experience-toolbar a { margin-left:0; }
-}
-
-.site-nav a { display:inline-flex; align-items:center; text-decoration:none; }
+.load-status { color:var(--muted); font-size:13px; line-height:1.8; }
+.experience-frame { display:block; width:100%; height:760px; border:1px solid var(--line); border-radius:18px; background:#edf1f5; }

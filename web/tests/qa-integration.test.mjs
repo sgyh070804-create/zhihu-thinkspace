@@ -11,7 +11,8 @@ function harness() {
   const requests = [], unmount = [];
   const api = (path, options = {}) => new Promise((resolve, reject) => requests.push({ path, options, resolve, reject }));
   const create = new Function('ref', 'nextTick', 'onMounted', 'onBeforeUnmount', 'api', 'ApiError', 'RequestScope', 'window', compile(setup) + '\nreturn {selectFavlist,collapseFavlist,selectTab,clearPrivateData,askQa,qaSession,qaQuestion,qaMessages,qaAsking,qaError,qaLoading,favoriteItems,selectedFavlist,error};');
-  const state = create(value => ({ value }), () => Promise.resolve(), () => {}, cb => unmount.push(cb), api, Error, RequestScope, { location: { pathname: '/' } });
+  const window = Object.assign(new EventTarget(), { location: { pathname: '/library' } });
+  const state = create(value => ({ value }), () => Promise.resolve(), () => {}, cb => unmount.push(cb), api, Error, RequestScope, window);
   return { ...state, requests, unmount: () => unmount.forEach(cb => cb()) };
 }
 const list = id => ({ UrlToken: id, Title: String(id) });
@@ -46,7 +47,7 @@ test('switching tabs or unmounting clears QA and rejects stale successful replie
   for (const action of ['tab', 'unmount']) {
     const h = harness(); h.qaSession.value = { id: 'private' }; h.qaQuestion.value = 'question';
     const pending = h.askQa();
-    if (action === 'tab') h.selectTab('likes'); else h.unmount();
+    if (action === 'tab') h.selectTab('bubbles'); else h.unmount();
     h.requests[0].resolve({ session: { id: 'private' }, question: { id: 'q' }, answer: { id: 'a' } });
     await pending;
     assert.equal(h.requests[0].options.signal.aborted, true);
