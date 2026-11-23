@@ -137,6 +137,16 @@ async function logout() {
   profile.value = null;
   view.value = "home";
   pairCode.value = "";
+  clearQa();
+}
+
+function selectTab(tab: TabKey) {
+  activeTab.value = tab;
+  error.value = "";
+  void loadActive();
+}
+
+function clearQa() {
   qaRequestId += 1;
   qaSession.value = null;
   qaMessages.value = [];
@@ -146,13 +156,17 @@ async function logout() {
   qaAsking.value = false;
 }
 
-function selectTab(tab: TabKey) {
-  activeTab.value = tab;
-  error.value = "";
-  void loadActive();
+function collapseFavlist() {
+  selectedFavlist.value = null;
+  favoriteItems.value = [];
+  clearQa();
 }
 
 async function selectFavlist(list: Favlist) {
+  if (selectedFavlist.value?.UrlToken === list.UrlToken) {
+    collapseFavlist();
+    return;
+  }
   selectedFavlist.value = list;
   favoriteItems.value = [];
   error.value = "";
@@ -161,7 +175,10 @@ async function selectFavlist(list: Favlist) {
     const data = await api<{ Items: ContentItem[] }>(
       `/zhihu/favorites/contents?favlist_url_token=${list.UrlToken}`,
     );
-    favoriteItems.value = data.Items || [];
+    // 请求返回时用户可能已经收起或换了收藏夹，旧结果不能回填。
+    if (selectedFavlist.value?.UrlToken === list.UrlToken) {
+      favoriteItems.value = data.Items || [];
+    }
   } catch (reason) {
     showError(reason);
   }
@@ -204,9 +221,11 @@ function retryQa() {
   if (selectedFavlist.value) void openQa(selectedFavlist.value);
 }
 
-async function askQa() {  const question = qaQuestion.value.trim();
+async function askQa() {
+  const question = qaQuestion.value.trim();
   const session = qaSession.value;
   if (!question || !session || qaAsking.value) return;
+  const requestId = qaRequestId;
   qaAsking.value = true;
   qaError.value = "";
   try {
@@ -218,7 +237,8 @@ async function askQa() {  const question = qaQuestion.value.trim();
       method: "POST",
       body: JSON.stringify({ question }),
     });
-    if (qaSession.value?.id !== session.id) return;
+    // 收起/切换收藏夹后，旧请求不能再写回新会话。
+    if (requestId !== qaRequestId || qaSession.value?.id !== session.id) return;
     qaMessages.value.push(result.question, result.answer);
     qaSession.value = result.session;
     qaQuestion.value = "";
@@ -375,6 +395,7 @@ onMounted(async () => {
             :key="list.UrlToken"
             class="favlist"
             :class="{ selected: selectedFavlist?.UrlToken === list.UrlToken }"
+            :aria-expanded="selectedFavlist?.UrlToken === list.UrlToken"
             @click="selectFavlist(list)"
           >
             <strong>{{ list.Title }}</strong><span>{{ list.Description || "无描述" }}</span>
