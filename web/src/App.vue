@@ -1,20 +1,32 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { api, ApiError } from "./api";
 import { RequestScope } from "./request-scope";
 import UserProfile from "./components/UserProfile.vue";
 import SiteHeader from "./components/SiteHeader.vue";
 import SpaceTools from "./components/SpaceTools.vue";
 import WorkspaceHome from "./components/WorkspaceHome.vue";
+import LibraryShelf from "./components/LibraryShelf.vue";
+import { createWheelStep, wheelPixels, workspaceIndex, workspacePages } from "./workspace-navigation";
 import "./workspace.css";
 import ThoughtBranches from "./components/ThoughtBranches.vue";
 import ThoughtBubblePage from "./components/ThoughtBubblePage.vue";
 import type { ArticleGroup, AuthStatus, Bubble, ContentItem, Favlist, Profile, QaMessage, QaSession } from "./types";
 
-const path = window.location.pathname.replace(/\/$/, "") || "/";
-const isBranchPage = path === "/thought-branches", isBubblePage = path === "/thought-bubbles";
-const route = path === "/library" ? "library" : path === "/account" ? "account"
-  : ["/space", "/space/debate", "/thought-bubbles", "/thought-branches"].includes(path) ? "space" : "home";
+const readPath = () => window.location.pathname.replace(/\/$/, "") || "/";
+const path = ref(readPath());
+const isBranchPage = computed(() => path.value === "/thought-branches");
+const isBubblePage = computed(() => path.value === "/thought-bubbles");
+const route = computed(() => {
+  if (path.value === "/library") return "library";
+  if (path.value === "/account") return "account";
+  return ["/space", "/space/debate", "/thought-bubbles", "/thought-branches"].includes(path.value) ? "space" : "home";
+});
+const activePage = computed(() => workspaceIndex(path.value));
+const direction = ref("forward");
+const wheelStep = createWheelStep();
+let transitionUntil = 0;
+let workspaceSearch = window.location.search;
 const resumeLabels: Record<string, string> = {
   "/library": "资料库", "/thought-bubbles": "思维泡泡", "/thought-branches": "思想分叉", "/space/debate": "长桌讨论室",
 };
@@ -31,7 +43,24 @@ const activeTab = ref<TabKey>("favorites");
 const loading = ref(true), authBusy = ref(false), error = ref("");
 const favlists = ref<Favlist[]>([]), recent = ref<ContentItem[]>([]), favoriteItems = ref<ContentItem[]>([]);
 const selectedFavlist = ref<Favlist | null>(null);
+const selectedRecent = ref<ContentItem | null>(null);
 const articles = ref<ArticleGroup[]>([]), bubbles = ref<Bubble[]>([]), selectedArticle = ref<ArticleGroup | null>(null);
+const shelfBooks = computed(() => activeTab.value === "favorites"
+  ? [
+    ...favlists.value.map(list => ({
+      id: `folder:${list.UrlToken}`, title: list.Title || "未命名收藏夹", subtitle: list.Description || "公开收藏夹",
+    })),
+    ...recent.value.map(item => ({
+      id: `recent:${item.Url}`, title: item.Title || "未命名收藏", subtitle: "近期收藏",
+    })),
+  ]
+  : articles.value.map(article => ({
+    id: article.article_key, title: article.title || "未命名文章", subtitle: `${article.bubble_count} 条想法`,
+  })));
+const openedBook = computed(() => activeTab.value === "favorites"
+  ? (selectedFavlist.value ? `folder:${selectedFavlist.value.UrlToken}`
+    : selectedRecent.value ? `recent:${selectedRecent.value.Url}` : undefined)
+  : selectedArticle.value?.article_key);
 const pairCode = ref(""), pairLoading = ref(false), detailLoading = ref(false), deletingId = ref("");
 const authRequest = new RequestScope(), tabRequest = new RequestScope(), favoriteRequest = new RequestScope();
 const articleRequest = new RequestScope(), pairRequest = new RequestScope(), deleteRequest = new RequestScope();
@@ -52,7 +81,8 @@ function clearPrivateData() {
   clearQa();
   dataRequests.forEach(request => request.invalidate());
   profile.value = null; favlists.value = []; recent.value = []; favoriteItems.value = [];
-  selectedFavlist.value = null; recentNotes.value = []; recentLoading.value = false; recentFailed.value = false;
+  selectedFavlist.value = null; selectedRecent.value = null;
+  recentNotes.value = []; recentLoading.value = false; recentFailed.value = false;
   articles.value = []; bubbles.value = []; selectedArticle.value = null;
   pairCode.value = ""; pairLoading.value = false; detailLoading.value = false;
   deletingId.value = ""; loading.value = false; error.value = "";
@@ -61,7 +91,7 @@ function clearPrivateData() {
 
 async function loadActive() {
   const request = tabRequest.begin();
-  if (!status.value?.authenticated || route !== "library") {
+  if (!status.value?.authenticated || route.value !== "library") {
     loading.value = false; return;
   }
   const tab = activeTab.value;
@@ -111,17 +141,41 @@ async function loadStatus() {
       profile.value = nextProfile;
     }
     if (!request.isCurrent()) return;
-    if (route === "library") {
-      const source = new URLSearchParams(window.location.search).get("source");
-      if (source && nextStatus.authenticated) activeTab.value = "bubbles";
-      await loadActive();
-      const article = source && articles.value.find(item => item.article_key === source);
-      if (request.isCurrent() && activeTab.value === "bubbles" && !selectedArticle.value && article) {
-        await selectArticle(article);
-      }
-    } else if (route === "home" && nextStatus.authenticated) await loadRecentNotes();
+    await loadPageData();
   } catch (reason) { if (request.isCurrent()) showError(reason, loadStatus); }
   finally { if (request.isCurrent()) { authBusy.value = false; if (!status.value?.authenticated) loading.value = false; } }
+}
+
+async function loadPageData() {
+  if (route.value === "home" && status.value?.authenticated) {
+    await loadRecentNotes();
+    return;
+  }
+  if (route.value !== "library") return;
+  const source = new URLSearchParams(window.location.search).get("source");
+  if (source && status.value?.authenticated) activeTab.value = "bubbles";
+  await loadActive();
+  const article = source && articles.value.find(item => item.article_key === source);
+  if (path.value === "/library" && activeTab.value === "bubbles" && !selectedArticle.value && article &&
+      new URLSearchParams(window.location.search).get("source") === source) {
+    await selectArticle(article);
+  }
+}
+
+function openShelfBook(id: string) {
+  if (activeTab.value === "favorites") {
+    if (id.startsWith("recent:")) {
+      collapseFavlist();
+      const item = recent.value.find(value => `recent:${value.Url}` === id);
+      selectedRecent.value = item && item.Url !== selectedRecent.value?.Url ? item : null;
+      return;
+    }
+    const list = favlists.value.find(item => `folder:${item.UrlToken}` === id);
+    if (list) { selectedRecent.value = null; void selectFavlist(list); }
+  } else {
+    const article = articles.value.find(item => item.article_key === id);
+    if (article && selectedArticle.value?.article_key !== id) void selectArticle(article);
+  }
 }
 
 async function loginDemo() {
@@ -149,7 +203,8 @@ async function logout() {
 function selectTab(tab: TabKey) {
   clearQa();
   favoriteRequest.invalidate(); articleRequest.invalidate(); detailLoading.value = false;
-  selectedFavlist.value = null; favoriteItems.value = []; selectedArticle.value = null; bubbles.value = [];
+  selectedFavlist.value = null; selectedRecent.value = null;
+  favoriteItems.value = []; selectedArticle.value = null; bubbles.value = [];
   activeTab.value = tab; void loadActive();
 }
 
@@ -249,7 +304,7 @@ function formatDate(timestamp?: number) { return timestamp ? new Date(timestamp 
 
 function restoreWorkspaceLink() {
   try {
-    if (Object.hasOwn(resumeLabels, path)) localStorage.setItem("thinkspace:last-workspace", path);
+    if (Object.hasOwn(resumeLabels, path.value)) localStorage.setItem("thinkspace:last-workspace", path.value);
     const previous = localStorage.getItem("thinkspace:last-workspace");
     if (previous && Object.hasOwn(resumeLabels, previous)) resume.value = { href: previous, label: resumeLabels[previous] };
   } catch { /* The workspace remains usable with storage disabled. */ }
@@ -261,19 +316,95 @@ function onPageShow(event: PageTransitionEvent) {
   void loadStatus();
 }
 
-onMounted(async () => {
+function refreshTitle() {
   document.title = ({
     home: "ThinkSpace · 首页", library: "资料库 · ThinkSpace", account: "个人中心 · ThinkSpace",
-    space: isBubblePage ? "思维泡泡 · ThinkSpace" : isBranchPage ? "思想分叉 · ThinkSpace"
-      : path === "/space/debate" ? "长桌讨论室 · ThinkSpace" : "思考空间 · ThinkSpace",
-  })[route];
+    space: isBubblePage.value ? "思维泡泡 · ThinkSpace" : isBranchPage.value ? "思想分叉 · ThinkSpace"
+      : path.value === "/space/debate" ? "长桌讨论室 · ThinkSpace" : "思考空间 · ThinkSpace",
+  })[route.value];
+}
+
+function switchWorkspace(url: URL, push: boolean) {
+  const index = workspaceIndex(url.pathname);
+  if (index < 0) return;
+  direction.value = index >= activePage.value ? "forward" : "backward";
+  transitionUntil = performance.now() + 520;
+  if (push) window.history.pushState({}, "", url);
+  workspaceSearch = url.search;
+  path.value = url.pathname;
+  clearQa();
+  tabRequest.invalidate(); favoriteRequest.invalidate(); articleRequest.invalidate(); recentRequest.invalidate();
+  deleteRequest.invalidate(); deletingId.value = "";
+  selectedFavlist.value = null; selectedRecent.value = null; favoriteItems.value = [];
+  selectedArticle.value = null; bubbles.value = [];
+  activeTab.value = "favorites"; detailLoading.value = false; recentLoading.value = false;
+  loading.value = status.value?.authenticated === true && route.value === "library";
+  error.value = "";
+  refreshTitle(); restoreWorkspaceLink();
+  void loadPageData();
+}
+
+function onWorkspaceClick(event: MouseEvent) {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const anchor = (event.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+  if (!anchor || anchor.target || anchor.hasAttribute("download")) return;
+  const url = new URL(anchor.href);
+  if (url.origin !== location.origin || url.hash || workspaceIndex(url.pathname) < 0 || activePage.value < 0) return;
+  event.preventDefault();
+  if (url.href !== location.href) switchWorkspace(url, true);
+}
+
+function onWorkspacePop() {
+  const next = readPath();
+  if (next === path.value && location.search === workspaceSearch) return;
+  if (activePage.value >= 0 && workspaceIndex(next) >= 0) switchWorkspace(new URL(location.href), false);
+}
+
+function onWorkspaceWheel(event: WheelEvent) {
+  const index = activePage.value;
+  if (index < 0 || event.defaultPrevented || event.ctrlKey || event.metaKey || event.shiftKey ||
+      Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+  const target = event.target as Element | null;
+  if (target?.closest?.("input, textarea, select, [contenteditable], [data-workspace-wheel], .qa-messages, dialog")) return;
+  const delta = wheelPixels(event, window.innerHeight);
+  if (!delta) return;
+  const next = workspacePages[index + Math.sign(delta)];
+  const scroller = document.scrollingElement;
+  if (!next || !scroller) return;
+  const hasRoom = delta > 0
+    ? scroller.scrollTop < scroller.scrollHeight - scroller.clientHeight - 3
+    : scroller.scrollTop > 3;
+  const now = performance.now();
+  if (now < transitionUntil) {
+    event.preventDefault();
+    wheelStep(delta, now);
+    return;
+  }
+  if (hasRoom) return;
+  event.preventDefault();
+  if (wheelStep(delta, now)) switchWorkspace(new URL(next.path, location.origin), true);
+}
+
+function resetPageScroll() { window.scrollTo({ top: 0, behavior: "instant" }); }
+
+onMounted(async () => {
+  refreshTitle();
   restoreWorkspaceLink();
   window.addEventListener("pageshow", onPageShow);
-  if (new URLSearchParams(window.location.search).get("auth") === "success") window.history.replaceState({}, "", "/");
+  window.addEventListener("popstate", onWorkspacePop);
+  window.addEventListener("wheel", onWorkspaceWheel, { passive: false });
+  document.addEventListener("click", onWorkspaceClick);
+  if (new URLSearchParams(window.location.search).get("auth") === "success") {
+    window.history.replaceState({}, "", "/");
+    workspaceSearch = "";
+  }
   await loadStatus();
 });
 onBeforeUnmount(() => {
   window.removeEventListener("pageshow", onPageShow);
+  window.removeEventListener("popstate", onWorkspacePop);
+  window.removeEventListener("wheel", onWorkspaceWheel);
+  document.removeEventListener("click", onWorkspaceClick);
   clearQa(); authRequest.invalidate(); dataRequests.forEach(request => request.invalidate());
 });
 </script>
@@ -283,6 +414,9 @@ onBeforeUnmount(() => {
   <div v-if="error" class="shell hub-alert">
     <div class="error-banner" role="alert"><span>{{ error }}</span><button @click="retry">重试</button></div>
   </div>
+  <div class="hub-transition-frame">
+    <Transition :name="`hub-page-${direction}`" mode="out-in" @before-enter="resetPageScroll">
+      <div :key="path">
   <ThoughtBubblePage v-if="isBubblePage" />
   <ThoughtBranches v-else-if="isBranchPage" />
   <WorkspaceHome v-else-if="route === 'home'" :authenticated="!!status?.authenticated"
@@ -303,12 +437,24 @@ onBeforeUnmount(() => {
     </template>
   </main>
   <main v-else class="shell hub-page">
-    <div class="hub-page-title">
-      <h1>{{ route === "account" ? "个人中心" : "资料库" }}</h1>
-      <p v-if="route === 'library'">在收藏里提问，按来源回看记下的想法。</p>
-      <p v-if="status?.oauth_expired" class="warning">知乎授权已过期，请退出后重新授权。</p>
+    <div class="hub-page-title library-heading">
+      <div>
+        <h1>{{ route === "account" ? "个人中心" : "资料库" }}</h1>
+        <p v-if="route === 'library'">在收藏里提问，按来源回看记下的想法。</p>
+        <p v-if="status?.oauth_expired" class="warning">知乎授权已过期，请退出后重新授权。</p>
+      </div>
+      <a v-if="route === 'library' && status && !status.authenticated" class="hub-action quiet"
+        href="#library-connect">连接阅读资料</a>
     </div>
-    <section v-if="!status?.authenticated" class="panel hub-gate" aria-label="登录">
+    <nav v-if="route === 'library' && status?.authenticated" class="tabs shelf-tabs" aria-label="资料分类">
+      <button v-for="tab in tabs" :key="tab.key" :class="{ active: activeTab === tab.key }"
+        :aria-pressed="activeTab === tab.key" @click="selectTab(tab.key)">{{ tab.label }}</button>
+    </nav>
+    <LibraryShelf v-if="route === 'library'" :key="activeTab" :books="shelfBooks" :open-id="openedBook"
+      :loading="authBusy || (!!status?.authenticated && loading)"
+      :empty-label="status?.authenticated ? '这里还没有资料。' : '登录后，收藏和来源文章会出现在书架上。'"
+      @open="openShelfBook" />
+    <section v-if="!status?.authenticated" id="library-connect" class="panel hub-gate" aria-label="登录">
       <h2>连接你的阅读资料</h2>
       <p>登录后可查看收藏、阅读手记和个人资料。</p>
       <div class="hub-welcome-actions">
@@ -339,50 +485,27 @@ onBeforeUnmount(() => {
     </template>
 
     <template v-else>
-      <nav class="tabs" aria-label="数据分类">
-        <button
-          v-for="tab in tabs"
-          :key="tab.key"
-          :class="{ active: activeTab === tab.key }"
-          :aria-pressed="activeTab === tab.key"
-          @click="selectTab(tab.key)"
-        >{{ tab.label }}</button>
-      </nav>
+      <section v-if="activeTab === 'favorites' && selectedFavlist" class="panel library-detail">
+        <div class="panel-heading"><h2>{{ selectedFavlist.Title }} · 条目</h2></div>
+        <p v-if="detailLoading" class="empty" role="status">正在加载条目…</p>
+        <p v-else-if="!favoriteItems.length && !error" class="empty">这个收藏夹还没有可显示的条目。</p>
+        <article v-for="item in favoriteItems" :key="item.Url" class="content-card compact">
+          <a :href="item.Url" target="_blank" rel="noreferrer">{{ item.Title }}</a>
+          <p>{{ item.Summary }}</p><small>摘要 · {{ item.Author?.Name || "未标注作者" }}</small>
+        </article>
+      </section>
 
-      <p v-if="loading" class="load-status" role="status">正在加载资料…</p>
-
-      <section v-if="activeTab === 'favorites'" class="content-grid two-columns">
-        <div class="panel">
-          <div class="panel-heading"><h2>公开收藏夹</h2><span>{{ favlists.length }} 个</span></div>
-          <button
-            v-for="list in favlists"
-            :key="list.UrlToken"
-            class="favlist"
-            :class="{ selected: selectedFavlist?.UrlToken === list.UrlToken }"
-            :aria-expanded="selectedFavlist?.UrlToken === list.UrlToken"
-            @click="selectFavlist(list)"
-          >
-            <strong>{{ list.Title }}</strong><span>{{ list.Description || "无描述" }}</span>
-          </button>
-          <p v-if="!loading && favlists.length === 0" class="empty">没有发现公开收藏夹。</p>
-          <div v-if="selectedFavlist" class="nested-list">
-            <h3>{{ selectedFavlist.Title }} · 条目</h3><p v-if="detailLoading" class="empty" role="status">正在加载条目…</p>
-            <article v-for="item in favoriteItems" :key="item.Url" class="content-card compact">
-              <a :href="item.Url" target="_blank" rel="noreferrer">{{ item.Title }}</a>
-              <p>{{ item.Summary }}</p><small>摘要 · {{ item.Author?.Name || "未标注作者" }}</small>
-            </article>
-          </div>
-        </div>
-        <div class="panel">
-          <div class="panel-heading"><h2>近期收藏</h2><span>摘要视图</span></div>
-          <article v-for="item in recent" :key="item.Url" class="content-card">
-            <div class="content-meta">{{ item.ContentType }} · {{ formatDate(item.FavTime) }}</div>
-            <a :href="item.Url" target="_blank" rel="noreferrer">{{ item.Title }}</a>
-            <p>{{ item.Summary }}</p>
-            <footer><span>{{ item.Author?.Name || "未标注作者" }}</span><span>{{ item.LikeCount || 0 }} 赞同 · {{ item.CommentCount || 0 }} 评论</span></footer>
-          </article>
-          <p v-if="!loading && recent.length === 0" class="empty">近期没有公开收藏。</p>
-        </div>
+      <section v-if="activeTab === 'favorites' && selectedRecent" class="panel library-detail">
+        <div class="panel-heading"><h2>近期收藏</h2><span>摘要</span></div>
+        <article class="content-card">
+          <div class="content-meta">{{ selectedRecent.ContentType }} · {{ formatDate(selectedRecent.FavTime) }}</div>
+          <a :href="selectedRecent.Url" target="_blank" rel="noreferrer">{{ selectedRecent.Title }}</a>
+          <p>{{ selectedRecent.Summary }}</p>
+          <footer>
+            <span>{{ selectedRecent.Author?.Name || "未标注作者" }}</span>
+            <span>{{ selectedRecent.LikeCount || 0 }} 赞同 · {{ selectedRecent.CommentCount || 0 }} 评论</span>
+          </footer>
+        </article>
       </section>
 
       <section v-if="activeTab === 'favorites' && selectedFavlist" class="panel qa-panel">
@@ -442,17 +565,7 @@ onBeforeUnmount(() => {
         </template>
       </section>
 
-      <section v-if="activeTab === 'bubbles'" class="content-grid bubble-layout">
-        <div class="panel">
-          <div class="panel-heading"><h2>有泡泡的文章</h2><span>{{ articles.length }} 篇</span></div>
-          <button v-for="article in articles" :key="article.article_key" class="article-row" :class="{ selected: selectedArticle?.article_key === article.article_key }" @click="selectArticle(article)">
-            <span><strong>{{ article.title || "未命名文章" }}</strong><small>{{ article.author_name || "未标注作者" }} · {{ article.content_type }}</small></span>
-            <span class="count">{{ article.bubble_count }}</span>
-          </button>
-          <div v-if="!loading && articles.length === 0" class="empty">
-            <strong>还没有文章泡泡</strong><p>连接浏览器扩展后，在知乎回答或文章页点击右下角泡泡即可记录。</p>
-          </div>
-        </div>
+      <section v-if="activeTab === 'bubbles' && selectedArticle" class="library-detail">
         <div class="panel bubble-detail">
           <template v-if="selectedArticle">
             <div class="panel-heading"><h2>{{ selectedArticle.title }}</h2></div>
@@ -466,9 +579,16 @@ onBeforeUnmount(() => {
               <button class="text-button danger" @click="removeBubble(bubble.id)" :disabled="deletingId === bubble.id">{{ deletingId === bubble.id ? "删除中…" : "删除" }}</button>
             </article>
           </template>
-          <p v-else class="empty">选择左侧文章，查看与之关联的想法和选中引用。</p>
         </div>
       </section>
     </template>
   </main>
+  <nav v-if="activePage >= 0" class="hub-sequence shell" aria-label="页面切换">
+    <a v-if="activePage > 0" :href="workspacePages[activePage - 1].path">上一页 · {{ workspacePages[activePage - 1].label }}</a>
+    <span>滚轮滚到页面边缘可切换页面</span>
+    <a v-if="activePage < workspacePages.length - 1" :href="workspacePages[activePage + 1].path">下一页 · {{ workspacePages[activePage + 1].label }}</a>
+  </nav>
+      </div>
+    </Transition>
+  </div>
 </template>

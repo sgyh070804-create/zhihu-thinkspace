@@ -1,20 +1,22 @@
 <script setup lang="ts">
 import SpaceTools from "./SpaceTools.vue";
 import SpaceIcon from "./SpaceIcon.vue";
+import { pickWorkspaceQuote } from "../workspace-quotes";
 import type { Bubble } from "../types";
 
 defineProps<{
   authenticated: boolean; recent: Bubble[]; loading: boolean; failed: boolean;
   resume?: { href: string; label: string };
 }>();
+const quote = pickWorkspaceQuote();
 </script>
 
 <template>
   <main class="hub-home">
     <section class="hub-welcome" aria-labelledby="hub-welcome-title">
       <div class="hub-welcome-copy">
-        <h1 id="hub-welcome-title">把读过的，<br />变成自己的<span>想法。</span></h1>
-        <p>回看收藏，留下一点思考，沿着它继续探索。</p>
+        <h1 id="hub-welcome-title" class="hub-quotation">「{{ quote.text }}」</h1>
+        <p class="hub-quote-source">{{ quote.source }}</p>
         <div class="hub-welcome-actions">
           <a v-if="resume" class="hub-action primary" :href="resume.href">继续{{ resume.label }}</a>
           <a v-else class="hub-action primary" href="/space">进入思考空间</a>
