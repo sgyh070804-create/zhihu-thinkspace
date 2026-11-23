@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ChaosPendulum from "./ChaosPendulum.vue";
 import SpaceTools from "./SpaceTools.vue";
 import SpaceIcon from "./SpaceIcon.vue";
 import { pickWorkspaceQuote } from "../workspace-quotes";
@@ -24,10 +25,7 @@ const quote = pickWorkspaceQuote();
           <a v-else class="hub-action quiet" href="/space">打开思考空间</a>
         </div>
       </div>
-      <div class="hub-welcome-art" aria-hidden="true">
-        <span class="hub-orbit orbit-one"></span><span class="hub-orbit orbit-two"></span>
-        <span class="hub-orb orb-one"></span><span class="hub-orb orb-two"></span><span class="hub-orb orb-three"></span>
-      </div>
+      <ChaosPendulum />
     </section>
 
     <div class="hub-home-grid">
