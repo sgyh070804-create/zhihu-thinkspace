@@ -146,12 +146,11 @@ onBeforeUnmount(() => { clearTimeout(saveTimer); persist(); resizeObserver?.disc
         <button v-for="exploration in draft.explorations" :key="exploration.id" :class="{ active: exploration.id === draft.activeId }" @click="switchExploration(exploration.id)"><BranchIcon name="thought" /><span>{{ exploration.topic }}</span></button>
       </div>
       <button class="new-exploration" @click="openEditor('root')"><BranchIcon name="plus" />新建探索</button>
-      <div class="thought-sidebar-foot"><BranchIcon name="branch" /><p>一次只改变一个条件，<br />让判断的边界慢慢清晰。</p><small>本机草稿 · 未连接 AI 或账号同步</small></div>
     </aside>
 
     <main class="thought-main">
-      <header class="thought-topbar"><div><a href="/space">思考空间</a><span class="breadcrumb-separator">/</span><strong>思想分叉</strong></div><button class="thought-button quiet" @click="exportDraft"><BranchIcon name="download" />导出探索</button></header>
-      <section class="thought-intro"><div><p class="thought-eyebrow">A LITTLE CHANGE, A NEW PERSPECTIVE</p><h1>换一个条件，再想一次。</h1><p>沿着不同的可能，找到判断成立的边界。</p></div><span class="thought-local">本机思考草稿</span></section>
+      <header class="thought-topbar"><div><a href="/space">思考空间</a></div><button class="thought-button quiet" @click="exportDraft"><BranchIcon name="download" />导出探索</button></header>
+      <section class="thought-intro"><h1>思想分叉</h1><span class="thought-local">本机草稿</span></section>
       <p v-if="storageError" class="thought-error" role="alert">{{ storageError }}</p>
       <section class="thought-tree" aria-labelledby="tree-heading">
         <div class="tree-toolbar"><div><BranchIcon name="branch" /><h2 id="tree-heading">思考路径</h2><span>{{ current.nodes.length }} 个情境</span></div><div><button class="thought-button quiet compare-toggle" :disabled="comparison.length !== 2" @click="compareDialog?.showModal()"><BranchIcon name="compare" />分支对照<span v-if="comparison.length">{{ comparison.length }}/2</span></button><span class="toolbar-divider"></span><button class="icon-button" aria-label="缩小画布" @click="zoomBy(-.1)"><BranchIcon name="minus" /></button><span class="zoom-label">{{ Math.round(zoom * 100) }}%</span><button class="icon-button" aria-label="放大画布" @click="zoomBy(.1)"><BranchIcon name="plus" /></button><button class="icon-button" aria-label="适应画布" @click="fit"><BranchIcon name="fit" /></button></div></div>
@@ -167,14 +166,12 @@ onBeforeUnmount(() => { clearTimeout(saveTimer); persist(); resizeObserver?.disc
               <button v-if="childCount(position.node.id)" class="collapse-branch" :aria-label="(collapsed.has(position.node.id) ? '展开' : '收起') + position.node.title + '的分支'" :aria-expanded="!collapsed.has(position.node.id)" @click="toggleCollapsed(position.node)">{{ collapsed.has(position.node.id) ? '+' : '−' }} {{ childCount(position.node.id) }}</button>
             </div>
           </div>
-          <div class="canvas-caption" aria-hidden="true"><span class="path-line"></span>当前思考路径<span class="caption-separator">·</span>拖动画布，自由查看</div>
         </div>
       </section>
 
       <section class="current-question" aria-labelledby="current-question-title">
         <div class="question-context"><div class="question-kicker"><span><BranchIcon name="thought" />当前问题</span><span>{{ selected.origin === 'sample' ? '示例情境' : '自建情境' }} · {{ path.length === 1 ? '起点' : '第 ' + (path.length - 1) + ' 层分叉' }}</span></div><h2 id="current-question-title">{{ selected.question }}</h2>
           <p v-if="selected.change" class="condition-change"><span>{{ selected.change.label }}</span><s>{{ selected.change.before }}</s><span class="change-symbol">/</span><strong>{{ selected.change.after }}</strong></p>
-          <p v-else class="root-question-note">从一个具体情境开始，先留下你的直觉。</p>
           <div class="condition-tags"><span v-for="condition in selected.conditions" :key="condition.key" :class="{ changed: condition.key === selected.change?.key }">{{ condition.value }}</span></div>
           <button class="thought-button comparison-action" :aria-pressed="comparison.includes(selected.id)" @click="toggleComparison"><BranchIcon name="compare" />{{ comparison.includes(selected.id) ? '移出分支对照' : '加入分支对照' }}</button>
         </div>
@@ -184,7 +181,7 @@ onBeforeUnmount(() => { clearTimeout(saveTimer); persist(); resizeObserver?.disc
     </main>
 
     <dialog ref="editor" class="thought-dialog" aria-labelledby="branch-editor-title" @close="formError = ''">
-      <form @submit.prevent="submitEditor"><div class="dialog-heading"><div><p class="thought-eyebrow">{{ mode === 'root' ? 'NEW EXPLORATION' : 'ONE CONDITION AT A TIME' }}</p><h2 id="branch-editor-title">{{ mode === 'root' ? '从一个问题开始' : '如果，条件变了呢？' }}</h2></div><button type="button" class="icon-button" aria-label="关闭情境编辑" @click="editor?.close()"><BranchIcon name="close" /></button></div>
+      <form @submit.prevent="submitEditor"><div class="dialog-heading"><h2 id="branch-editor-title">{{ mode === 'root' ? '新建探索' : '创建分支' }}</h2><button type="button" class="icon-button" aria-label="关闭情境编辑" @click="editor?.close()"><BranchIcon name="close" /></button></div>
         <template v-if="mode === 'branch'"><p class="dialog-note">从「{{ selected.title }}」继续，其他条件保持一致。</p><label for="condition-choice">这次改变哪个条件？</label><select id="condition-choice" v-model="conditionKey" @change="afterValue = ''"><option v-for="condition in selected.conditions" :key="condition.key" :value="condition.key">{{ condition.label }}</option></select><p class="previous-condition">当前：{{ changingCondition?.value }}</p><label for="condition-value">新的条件</label><input id="condition-value" v-model="afterValue" required maxlength="120" placeholder="例如：决定无法撤回" /></template>
         <label for="branch-question">{{ mode === 'root' ? '你想探索什么问题？' : '在这个条件下，你想问什么？' }}</label><textarea id="branch-question" v-model="question" required maxlength="180" :placeholder="mode === 'root' ? '例如：AI 可以替我做决定吗？' : '把问题写具体一点，让这次分叉有明确的方向。'"></textarea>
         <details v-if="mode === 'root'" class="root-conditions-editor"><summary>设定三个起始条件</summary><p class="dialog-note">默认是 AI 决策情境。探索其他问题时，请在这里填写适用的条件。</p><div v-for="(condition, i) in rootConditions" :key="condition.key"><label :for="'root-label-' + i">条件 {{ i + 1 }} 名称</label><input :id="'root-label-' + i" v-model="condition.label" required maxlength="24" /><label :for="'root-value-' + i">条件 {{ i + 1 }} 内容</label><input :id="'root-value-' + i" v-model="condition.value" required maxlength="120" /></div></details><p v-if="formError" class="thought-error" role="alert">{{ formError }}</p><div class="dialog-actions"><button type="button" class="thought-button quiet" @click="editor?.close()">取消</button><button type="submit" class="thought-button primary">{{ mode === 'root' ? '开始探索' : '创建分支' }}</button></div>

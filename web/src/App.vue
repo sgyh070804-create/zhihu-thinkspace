@@ -425,13 +425,13 @@ onBeforeUnmount(() => {
     <template v-if="path === '/space/debate'">
       <div class="hub-page-title">
         <a class="hub-back" href="/space">思考空间</a>
-        <h1>长桌讨论室</h1><p>角色发言为预设示例。你可以换话题、发言，或查看动作试演。</p>
+        <h1>长桌讨论室</h1>
       </div>
       <iframe src="/experiences/debate/" title="长桌讨论室" class="experience-frame"></iframe>
     </template>
     <template v-else>
       <div class="hub-page-title">
-        <h1>思考空间</h1><p>选择一种方式，把刚读到的内容再想一遍。</p>
+        <h1>思考空间</h1>
       </div>
       <div class="hub-space-tools"><SpaceTools /></div>
     </template>
@@ -440,7 +440,6 @@ onBeforeUnmount(() => {
     <div class="hub-page-title library-heading">
       <div>
         <h1>{{ route === "account" ? "个人中心" : "资料库" }}</h1>
-        <p v-if="route === 'library'">在收藏里提问，按来源回看记下的想法。</p>
         <p v-if="status?.oauth_expired" class="warning">知乎授权已过期，请退出后重新授权。</p>
       </div>
       <a v-if="route === 'library' && status && !status.authenticated" class="hub-action quiet"
@@ -452,21 +451,19 @@ onBeforeUnmount(() => {
     </nav>
     <LibraryShelf v-if="route === 'library'" :key="activeTab" :books="shelfBooks" :open-id="openedBook"
       :loading="authBusy || (!!status?.authenticated && loading)"
-      :empty-label="status?.authenticated ? '这里还没有资料。' : '登录后，收藏和来源文章会出现在书架上。'"
       @open="openShelfBook" />
     <section v-if="!status?.authenticated" id="library-connect" class="panel hub-gate" aria-label="登录">
       <h2>连接你的阅读资料</h2>
-      <p>登录后可查看收藏、阅读手记和个人资料。</p>
       <div class="hub-welcome-actions">
         <button class="hub-action primary" @click="loginZhihu" :disabled="!status?.oauth_configured || authBusy">使用知乎账号登录</button>
         <button v-if="status?.demo_enabled" class="hub-action quiet" @click="loginDemo" :disabled="authBusy">先体验本地演示</button>
       </div>
-      <p v-if="status && !status.oauth_configured" class="hub-help">当前环境可以使用演示账号体验，知乎授权待配置。</p>
+      <p v-if="status && !status.oauth_configured" class="hub-help">知乎授权待配置。</p>
     </section>
 
     <template v-else-if="route === 'account'">
       <section id="extension" class="panel hub-account-tools" aria-label="账户与扩展">
-        <div><h2>阅读扩展</h2><p>在知乎原文旁记录想法，保存到当前账户。</p></div>
+        <div><h2>阅读扩展</h2></div>
         <button class="hub-action quiet" @click="createPairCode" :disabled="pairLoading || authBusy">
           {{ pairLoading ? "生成中…" : "连接阅读扩展" }}
         </button>
@@ -511,7 +508,7 @@ onBeforeUnmount(() => {
       <section v-if="activeTab === 'favorites' && selectedFavlist" class="panel qa-panel">
         <div class="panel-heading">
           <h2>问「{{ selectedFavlist.Title }}」</h2>
-          <span>只基于收藏摘要</span>
+          <span>仅基于收藏摘要 · 无生成模型</span>
         </div>
         <p v-if="qaLoading" class="empty">正在打开问答…</p>
         <div v-else-if="!qaSession" class="empty">
@@ -521,7 +518,7 @@ onBeforeUnmount(() => {
         <template v-else>
           <div ref="qaList" class="qa-messages">
             <p v-if="qaMessages.length === 0" class="empty">
-              还没有提问。可以问这个收藏夹里讲了什么、有哪些不同观点，或让它指出资料不足的地方。
+              暂无提问。
             </p>
             <article
               v-for="message in qaMessages"
@@ -561,7 +558,6 @@ onBeforeUnmount(() => {
               {{ qaAsking ? "回答中…" : "提问" }}
             </button>
           </form>
-          <p class="qa-note">回答只基于收藏摘要，不是全文；引用可以打开原文核对。当前不调用生成模型。</p>
         </template>
       </section>
 
@@ -583,11 +579,6 @@ onBeforeUnmount(() => {
       </section>
     </template>
   </main>
-  <nav v-if="activePage >= 0" class="hub-sequence shell" aria-label="页面切换">
-    <a v-if="activePage > 0" :href="workspacePages[activePage - 1].path">上一页 · {{ workspacePages[activePage - 1].label }}</a>
-    <span>滚轮滚到页面边缘可切换页面</span>
-    <a v-if="activePage < workspacePages.length - 1" :href="workspacePages[activePage + 1].path">下一页 · {{ workspacePages[activePage + 1].label }}</a>
-  </nav>
       </div>
     </Transition>
   </div>

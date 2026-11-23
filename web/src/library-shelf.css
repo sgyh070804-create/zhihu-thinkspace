@@ -17,7 +17,7 @@
   padding: 14px 20px 0;
 }
 .shelf-top p { margin: 0; color: var(--shelf-muted); font-size: 14px; line-height: 1.6; }
-.shelf-controls { display: flex; flex-shrink: 0; gap: 6px; }
+.shelf-controls { display: flex; flex-shrink: 0; gap: 6px; margin-inline-start: auto; }
 .shelf-controls button {
   display: grid;
   place-items: center;
