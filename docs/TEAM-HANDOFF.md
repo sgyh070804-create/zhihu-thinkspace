@@ -18,7 +18,9 @@ OAuth 登录、用户界面、公开数据接入、浏览器扩展灵感泡泡**
 | 点赞 / 评论历史 | ⛔ 官方未开放 | 公开文档无此接口，页面明确标注，不用累计数冒充 |
 | 浏览器扩展灵感泡泡 | ✅ 完成 | 加载已解压扩展即可在知乎文章页记录想法、选中文字，按内容 ID 关联文章 |
 | 讨论室角色调度（E 首版） | ✅ 代码完成，假模型 | 15 个新用例；`POST /api/discussions/{id}/advance` 手动推进，`POST /messages` 带 `advance=true` 自动推进 |
-| 服务端离线测试 | 81/81 通过 | `pytest api/tests`；anyio 已约束 >=4（SSE 使用 `abandon_on_cancel`） |
+| 收藏问答后端（首版） | ✅ 本地完成，摘要检索 | 8 个新用例；会话/消息/引用落 SQLite，接口见 [qa-api.md](qa-api.md) |
+| 文章收藏（扩展 + 网页） | ✅ 完成 | 7 个新用例；扩展收藏、网页列表、SQLite 落库，见 [saved-articles.md](saved-articles.md) |
+| 服务端离线测试 | 98/98 通过 | `pytest api/tests`；anyio 已约束 >=4（SSE 使用 `abandon_on_cancel`） |
 
 ## 目录结构
 

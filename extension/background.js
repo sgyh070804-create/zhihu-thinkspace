@@ -53,6 +53,15 @@ async function handle(message) {
   if (message.type === "getBubbles") {
     return request(`/bubbles?source_url=${encodeURIComponent(message.sourceUrl)}`);
   }
+  if (message.type === "saveArticle") {
+    return request("/saved", { method: "POST", body: JSON.stringify(message.payload) });
+  }
+  if (message.type === "getSaved") {
+    return request(`/saved/status?source_url=${encodeURIComponent(message.sourceUrl)}`);
+  }
+  if (message.type === "unsaveArticle") {
+    return request(`/saved/${encodeURIComponent(message.articleKey)}`, { method: "DELETE" });
+  }
   throw new Error("未知扩展请求。");
 }
 

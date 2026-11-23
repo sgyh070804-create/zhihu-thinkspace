@@ -80,3 +80,13 @@ export interface Bubble {
   quote: string;
   created_at: number;
 }
+
+export interface SavedArticle {
+  article_key: string;
+  source_url: string;
+  content_type: string;
+  content_id: string;
+  title: string;
+  author_name: string;
+  saved_at: number;
+}

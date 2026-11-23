@@ -12,9 +12,10 @@ import type {
   Favlist,
   Followee,
   Profile,
+  SavedArticle,
 } from "./types";
 
-type TabKey = "favorites" | "creations" | "followees" | "likes" | "comments" | "bubbles";
+type TabKey = "favorites" | "creations" | "followees" | "likes" | "comments" | "bubbles" | "saved";
 type ViewKey = "home" | "profile";
 
 const tabs: { key: TabKey; label: string }[] = [
@@ -24,6 +25,7 @@ const tabs: { key: TabKey; label: string }[] = [
   { key: "likes", label: "点赞" },
   { key: "comments", label: "评论" },
   { key: "bubbles", label: "文章泡泡" },
+  { key: "saved", label: "文章收藏" },
 ];
 
 const status = ref<AuthStatus | null>(null);
@@ -40,6 +42,7 @@ const creations = ref<ContentItem[]>([]);
 const followees = ref<Followee[]>([]);
 const articles = ref<ArticleGroup[]>([]);
 const bubbles = ref<Bubble[]>([]);
+const savedArticles = ref<SavedArticle[]>([]);
 const selectedArticle = ref<ArticleGroup | null>(null);
 const pairCode = ref("");
 const pairLoading = ref(false);
@@ -73,6 +76,21 @@ async function loadArticles() {
   articles.value = data.items.filter((item) => item.bubble_count > 0);
 }
 
+async function loadSaved() {
+  const data = await api<{ items: SavedArticle[] }>("/saved?limit=50");
+  savedArticles.value = data.items;
+}
+
+async function removeSaved(article: SavedArticle) {
+  if (!window.confirm(`确定取消收藏《${article.title || "未命名文章"}》吗？`)) return;
+  try {
+    await api(`/saved/${encodeURIComponent(article.article_key)}`, { method: "DELETE" });
+    await loadSaved();
+  } catch (reason) {
+    showError(reason);
+  }
+}
+
 async function loadActive() {
   if (!status.value?.authenticated || ["likes", "comments"].includes(activeTab.value)) return;
   loading.value = true;
@@ -82,6 +100,7 @@ async function loadActive() {
     if (activeTab.value === "creations") await loadCreations();
     if (activeTab.value === "followees") await loadFollowees();
     if (activeTab.value === "bubbles") await loadArticles();
+    if (activeTab.value === "saved") await loadSaved();
   } catch (reason) {
     showError(reason);
   } finally {
@@ -346,6 +365,24 @@ onMounted(async () => {
         <p>截至 2026-11-14 查阅的知乎官方公开用户数据文档，没有提供这类历史记录接口。</p>
         <p>ThinkSpace 不会把内容上的累计{{ activeTab === "likes" ? "点赞数" : "评论数" }}误当成你的历史，也不会调用私有网页 API 绕过权限。</p>
         <a href="https://developer.zhihu.com/docs" target="_blank" rel="noreferrer">查看知乎开放平台文档</a>
+      </section>
+
+      <section v-else-if="activeTab === 'saved'" class="panel">
+        <div class="panel-heading"><h2>文章收藏</h2><span>{{ savedArticles.length }} 篇</span></div>
+        <div class="card-list">
+          <article v-for="item in savedArticles" :key="item.article_key" class="content-card">
+            <div class="content-meta">{{ item.content_type }} · {{ formatDate(item.saved_at) }}</div>
+            <a :href="item.source_url" target="_blank" rel="noreferrer">{{ item.title || "未命名文章" }}</a>
+            <p>{{ item.author_name || "未标注作者" }}</p>
+            <footer>
+              <span>收藏到 ThinkSpace</span>
+              <button class="text-button danger" @click="removeSaved(item)">取消收藏</button>
+            </footer>
+          </article>
+        </div>
+        <p v-if="!loading && savedArticles.length === 0" class="empty">
+          还没有收藏文章。打开知乎回答或文章页，用扩展面板里的「收藏这篇文章」。
+        </p>
       </section>
 
       <section v-else class="content-grid bubble-layout">

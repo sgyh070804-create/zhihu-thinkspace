@@ -18,6 +18,7 @@
       <header class="ts-header"><span class="ts-brand">THINKSPACE · 灵感泡泡</span><button class="ts-close" type="button" aria-label="关闭">×</button></header>
       <div class="ts-body">
         <div class="ts-source"><strong></strong><span></span></div>
+        <button class="ts-collect" type="button" aria-pressed="false">收藏这篇文章</button>
         <label class="ts-label">文章里触动你的内容</label>
         <blockquote class="ts-quote" hidden></blockquote>
         <button class="ts-quote-button" type="button">使用当前选中文字</button>
@@ -38,6 +39,7 @@
   const close = root.querySelector(".ts-close");
   const sourceTitle = root.querySelector(".ts-source strong");
   const sourceMeta = root.querySelector(".ts-source span");
+  const collect = root.querySelector(".ts-collect");
   const quote = root.querySelector(".ts-quote");
   const quoteButton = root.querySelector(".ts-quote-button");
   const body = root.querySelector(".ts-textarea");
@@ -48,6 +50,8 @@
 
   let lastUrl = "";
   let knownCount = 0;
+  let savedKey = "";
+  let isSaved = false;
 
   function send(message) {
     return chrome.runtime.sendMessage(message).then((response) => {
@@ -118,6 +122,25 @@
     });
   }
 
+  function renderSaved() {
+    collect.textContent = isSaved ? "已收藏 · 点击取消" : "收藏这篇文章";
+    collect.classList.toggle("saved", isSaved);
+    collect.setAttribute("aria-pressed", String(isSaved));
+  }
+
+  async function refreshSaved() {
+    const source = sourceInfo();
+    try {
+      const result = await send({ type: "getSaved", sourceUrl: source.source_url });
+      savedKey = result.article_key || "";
+      isSaved = Boolean(result.saved);
+    } catch {
+      savedKey = "";
+      isSaved = false;
+    }
+    renderSaved();
+  }
+
   async function refreshContext() {
     const source = sourceInfo();
     if (source.source_url === lastUrl) return;
@@ -125,6 +148,7 @@
     sourceTitle.textContent = source.title || "当前知乎内容";
     sourceMeta.textContent = `${source.author_name || "未识别作者"} · ${source.source_url}`;
     setQuote();
+    await refreshSaved();
     try {
       const result = await send({ type: "getBubbles", sourceUrl: source.source_url });
       renderNotes(result.items || []);
@@ -140,11 +164,34 @@
     panel.hidden = !panel.hidden;
     if (!panel.hidden) {
       refreshContext().then(() => body.focus());
+      void refreshSaved();
       setQuote();
     }
   });
   close.addEventListener("click", () => { panel.hidden = true; });
   quoteButton.addEventListener("click", () => setQuote());
+  collect.addEventListener("click", async () => {
+    collect.disabled = true;
+    setStatus(isSaved ? "正在取消收藏…" : "正在收藏…");
+    try {
+      const source = sourceInfo();
+      if (isSaved && savedKey) {
+        await send({ type: "unsaveArticle", articleKey: savedKey });
+        isSaved = false;
+        setStatus("已取消收藏。");
+      } else {
+        const result = await send({ type: "saveArticle", payload: source });
+        savedKey = result.article.article_key;
+        isSaved = true;
+        setStatus("已收藏到 ThinkSpace。");
+      }
+      renderSaved();
+    } catch (error) {
+      setStatus(error.message, true);
+    } finally {
+      collect.disabled = false;
+    }
+  });
   document.addEventListener("mouseup", () => {
     if (!panel.hidden && selectionText()) setQuote();
   });
