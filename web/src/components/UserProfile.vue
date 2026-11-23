@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { api, ApiError } from "../api";
 import { RequestScope } from "../request-scope";
 import type { ContentItem, Followee, Paging, Profile } from "../types";
-const emit = defineEmits<{ back: [] }>();
 const profile = ref<Profile | null>(null), profileLoading = ref(true);
 const PAGE_SIZE = 5;
 const followees = ref<Followee[]>([]), followeesPaging = ref<Paging | null>(null), followeesLoading = ref(false);
@@ -52,8 +51,6 @@ onBeforeUnmount(() => { profileRequest.invalidate(); followeesRequest.invalidate
 
 <template>
   <section class="user-profile">
-    <button class="button secondary back-button" @click="emit('back')">← 返回资料区</button>
-
     <div v-if="error" class="error-banner" role="alert">
       <span>{{ error }}</span><button @click="retryFailed">重试</button>
     </div>

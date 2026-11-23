@@ -17,6 +17,7 @@ const mode = ref<"account" | "sample">("account"), status = ref<AuthStatus | nul
 const query = ref(""), draftsOnly = ref(false), page = ref(0), paused = ref(false), busy = ref(false);
 const compactScreen = matchMedia("(max-width: 760px)"), pageSize = ref(compactScreen.matches ? 4 : PAGE_SIZE);
 const composer = ref<{ a: SpaceNote; b: SpaceNote } | null>(null), body = ref("");
+const requestedNote = new URLSearchParams(window.location.search).get("note");
 const picked = ref<string[]>([]), picking = ref(false), renderer = ref(""), rafRate = ref(0);
 const lastMerge = ref<{ child: string; parents: string[] } | null>(null);
 const filtered = computed(() => filterNotes(notes.value, query.value, draftsOnly.value, folded.value));
@@ -56,7 +57,17 @@ async function loadAccount() {
     }
     mode.value = "account";
     const data = await api<{ items: Bubble[] }>("/bubbles", { signal: current.signal });
-    if (current.isCurrent()) resetSpace(data.items.map(fromSavedBubble));
+    if (!current.isCurrent()) return;
+    resetSpace(data.items.map(fromSavedBubble));
+    if (requestedNote) {
+      const index = notes.value.findIndex(note => note.id === requestedNote);
+      if (index < 0) tell("这条想法已不存在，或不属于当前账号。");
+      else {
+        page.value = Math.floor(index / pageSize.value);
+        await nextTick();
+        if (current.isCurrent()) scene?.focus(requestedNote);
+      }
+    }
   } catch {
     if (current.isCurrent()) error.value = "暂时无法读取泡泡，请检查服务后重试。也可以先进入示例空间。";
   } finally { if (current.isCurrent()) loading.value = false; }
@@ -195,14 +206,8 @@ onBeforeUnmount(() => {
 <template>
   <main class="thought-space" :data-renderer="renderer" :data-raf="rafRate">
     <div class="ts-page-content" :inert="!!composer">
-      <header class="ts-header">
-        <a class="ts-brand" href="/" aria-label="ThinkSpace 首页"><span class="ts-brand-mark"><SpaceIcon name="bubbles" /></span><strong>ThinkSpace</strong></a>
-        <nav aria-label="主导航"><a href="/">资料与想法</a><a class="is-current" href="/thought-bubbles" aria-current="page">思维泡泡</a><a href="/thought-branches">思想分叉</a></nav>
-        <span class="ts-mode"><i></i>{{ mode === 'sample' ? '示例空间' : status?.mode === 'demo' ? '本地演示账号' : '我的思绪空间' }}</span>
-      </header>
-
       <section class="ts-intro" aria-labelledby="ts-title">
-        <div><span class="ts-kicker">A LITTLE ROOM TO THINK</span><h1 id="ts-title">让想法，<span>慢慢相遇。</span></h1><p>留住阅读里的片刻灵光，给新的连接一点空间。</p></div>
+        <div><a class="hub-back" href="/space">思考空间</a><h1 id="ts-title">思维泡泡</h1><p>留住阅读里的片刻灵光，给新的连接一点空间。</p></div>
         <div class="ts-intro-detail"><SpaceIcon name="spark"/><span>不急着找到答案<br/><strong>先让思绪自由游动</strong></span></div>
       </section>
 
@@ -232,7 +237,11 @@ onBeforeUnmount(() => {
                   <div class="ts-reader-kicker">{{ reading.generated ? '一次新的连接' : '阅读留下的想法' }}</div>
                   <p class="ts-reader-body">{{ reading.text }}</p>
                   <blockquote v-if="reading.quote">{{ reading.quote }}</blockquote>
-                  <footer><span>{{ reading.source }}</span><a v-if="reading.url" :href="reading.url" target="_blank" rel="noopener noreferrer">阅读原文</a></footer>
+                  <footer>
+                    <span>{{ reading.source }}</span>
+                    <a v-if="reading.articleKey" :href="`/library?source=${encodeURIComponent(reading.articleKey)}`">查看关联记录</a>
+                    <a v-if="reading.url" :href="reading.url" target="_blank" rel="noopener noreferrer">阅读原文</a>
+                  </footer>
                 </article>
               </Transition>
               <div class="ts-reader-nav"><button class="ts-icon-button" aria-label="上一个想法" :disabled="sceneNotes.length < 2" @click="stepReader(-1)"><SpaceIcon name="left"/></button><span>{{ readingIndex + 1 }} / {{ sceneNotes.length }}</span><button class="ts-icon-button" aria-label="下一个想法" :disabled="sceneNotes.length < 2" @click="stepReader(1)"><SpaceIcon name="right"/></button></div>
@@ -261,7 +270,7 @@ onBeforeUnmount(() => {
           <div class="ts-connection-tools"><button v-if="!picking" class="ts-secondary" :disabled="sceneNotes.length < 2 || busy" @click="closeReader(); picking = true"><SpaceIcon name="link"/>连接两个想法</button><template v-else><button class="ts-primary" :disabled="picked.length !== 2 || busy" @click="startMerge">{{ picked.length === 2 ? '写下新的连接' : `再选 ${2 - picked.length} 个想法` }}</button><button class="ts-quiet" :disabled="busy" @click="picking = false; picked = []">取消</button></template><button v-if="lastMerge" class="ts-icon-button" aria-label="撤销上一次连接" :disabled="busy" @click="undoMerge"><SpaceIcon name="undo"/></button></div>
         </aside>
       </div>
-      <footer class="ts-page-footer"><span>{{ mode === 'sample' ? '示例不与账号同步。' : '原始泡泡保留在账号中。' }}连接草稿仅留在本页，离开前请导出。</span><div><button v-if="draftCount" class="ts-quiet" @click="exportDrafts"><SpaceIcon name="download"/>导出草稿</button><button v-if="mode === 'sample' && status?.authenticated" class="ts-quiet" :disabled="busy" @click="loadAccount">回到我的泡泡</button><a v-else-if="mode === 'sample'" href="/">连接阅读资料</a><a v-else href="/">管理阅读资料</a></div></footer>
+      <footer class="ts-page-footer"><span>{{ mode === 'sample' ? '示例不与账号同步。' : '原始泡泡保留在账号中。' }}连接草稿仅留在本页，离开前请导出。</span><div><button v-if="draftCount" class="ts-quiet" @click="exportDrafts"><SpaceIcon name="download"/>导出草稿</button><button v-if="mode === 'sample' && status?.authenticated" class="ts-quiet" :disabled="busy" @click="loadAccount">回到我的泡泡</button><a v-else-if="mode === 'sample'" href="/account">连接阅读资料</a><a v-else href="/library">打开资料库</a></div></footer>
     </div>
     <Transition name="ts-toast"><div v-if="notice" class="ts-toast" role="status">{{ notice }}</div></Transition>
     <Transition name="ts-composer">

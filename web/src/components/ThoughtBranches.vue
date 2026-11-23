@@ -141,12 +141,6 @@ onBeforeUnmount(() => { clearTimeout(saveTimer); persist(); resizeObserver?.disc
 <template>
   <div class="thought-workspace">
     <aside class="thought-sidebar">
-      <a class="thought-brand" href="/" aria-label="返回 ThinkSpace 主站"><span>t.</span><strong>ThinkSpace<small>留一点空间，给自己的判断</small></strong></a>
-      <nav aria-label="思考空间导航">
-        <a href="/"><BranchIcon name="home" />资料与想法</a>
-        <a href="/thought-bubbles"><BranchIcon name="thought" />思维泡泡</a>
-        <span class="thought-current"><BranchIcon name="branch" />思想分叉</span>
-      </nav>
       <div class="exploration-heading"><span>我的探索</span><span>{{ draft.explorations.length }}</span></div>
       <div class="exploration-list">
         <button v-for="exploration in draft.explorations" :key="exploration.id" :class="{ active: exploration.id === draft.activeId }" @click="switchExploration(exploration.id)"><BranchIcon name="thought" /><span>{{ exploration.topic }}</span></button>
@@ -156,7 +150,7 @@ onBeforeUnmount(() => { clearTimeout(saveTimer); persist(); resizeObserver?.disc
     </aside>
 
     <main class="thought-main">
-      <header class="thought-topbar"><div><span>我的空间</span><span class="breadcrumb-separator">/</span><strong>思想分叉</strong></div><button class="thought-button quiet" @click="exportDraft"><BranchIcon name="download" />导出探索</button></header>
+      <header class="thought-topbar"><div><a href="/space">思考空间</a><span class="breadcrumb-separator">/</span><strong>思想分叉</strong></div><button class="thought-button quiet" @click="exportDraft"><BranchIcon name="download" />导出探索</button></header>
       <section class="thought-intro"><div><p class="thought-eyebrow">A LITTLE CHANGE, A NEW PERSPECTIVE</p><h1>换一个条件，再想一次。</h1><p>沿着不同的可能，找到判断成立的边界。</p></div><span class="thought-local">本机思考草稿</span></section>
       <p v-if="storageError" class="thought-error" role="alert">{{ storageError }}</p>
       <section class="thought-tree" aria-labelledby="tree-heading">

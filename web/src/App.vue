@@ -3,31 +3,39 @@ import { nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { api, ApiError } from "./api";
 import { RequestScope } from "./request-scope";
 import UserProfile from "./components/UserProfile.vue";
-import ExperienceGallery from "./components/ExperienceGallery.vue";
+import SiteHeader from "./components/SiteHeader.vue";
+import SpaceTools from "./components/SpaceTools.vue";
+import WorkspaceHome from "./components/WorkspaceHome.vue";
+import "./workspace.css";
 import ThoughtBranches from "./components/ThoughtBranches.vue";
 import ThoughtBubblePage from "./components/ThoughtBubblePage.vue";
-import type { ArticleGroup, AuthStatus, Bubble, ContentItem, Favlist, Followee, Profile, QaMessage, QaSession } from "./types";
+import type { ArticleGroup, AuthStatus, Bubble, ContentItem, Favlist, Profile, QaMessage, QaSession } from "./types";
 
-const isBranchPage = window.location.pathname.replace(/\/$/, "") === "/thought-branches";
-const isBubblePage = window.location.pathname.replace(/\/$/, "") === "/thought-bubbles";
+const path = window.location.pathname.replace(/\/$/, "") || "/";
+const isBranchPage = path === "/thought-branches", isBubblePage = path === "/thought-bubbles";
+const route = path === "/library" ? "library" : path === "/account" ? "account"
+  : ["/space", "/space/debate", "/thought-bubbles", "/thought-branches"].includes(path) ? "space" : "home";
+const resumeLabels: Record<string, string> = {
+  "/library": "资料库", "/thought-bubbles": "思维泡泡", "/thought-branches": "思想分叉", "/space/debate": "长桌讨论室",
+};
+const resume = ref<{ href: string; label: string }>();
+const recentNotes = ref<Bubble[]>([]), recentLoading = ref(false), recentFailed = ref(false);
+const recentRequest = new RequestScope();
 
-type TabKey = "favorites" | "creations" | "followees" | "likes" | "comments" | "bubbles";
-type ViewKey = "home" | "profile" | "experiences";
+type TabKey = "favorites" | "bubbles";
 const tabs: { key: TabKey; label: string }[] = [
-  { key: "favorites", label: "收藏" }, { key: "creations", label: "创作" },
-  { key: "followees", label: "关注" }, { key: "likes", label: "点赞" },
-  { key: "comments", label: "评论" }, { key: "bubbles", label: "文章泡泡" },
+  { key: "favorites", label: "收藏" }, { key: "bubbles", label: "来源文章" },
 ];
 const status = ref<AuthStatus | null>(null), profile = ref<Profile | null>(null);
-const view = ref<ViewKey>("home"), activeTab = ref<TabKey>("favorites");
+const activeTab = ref<TabKey>("favorites");
 const loading = ref(true), authBusy = ref(false), error = ref("");
 const favlists = ref<Favlist[]>([]), recent = ref<ContentItem[]>([]), favoriteItems = ref<ContentItem[]>([]);
-const selectedFavlist = ref<Favlist | null>(null), creations = ref<ContentItem[]>([]), followees = ref<Followee[]>([]);
+const selectedFavlist = ref<Favlist | null>(null);
 const articles = ref<ArticleGroup[]>([]), bubbles = ref<Bubble[]>([]), selectedArticle = ref<ArticleGroup | null>(null);
 const pairCode = ref(""), pairLoading = ref(false), detailLoading = ref(false), deletingId = ref("");
 const authRequest = new RequestScope(), tabRequest = new RequestScope(), favoriteRequest = new RequestScope();
 const articleRequest = new RequestScope(), pairRequest = new RequestScope(), deleteRequest = new RequestScope();
-const dataRequests = [tabRequest, favoriteRequest, articleRequest, pairRequest, deleteRequest];
+const dataRequests = [tabRequest, favoriteRequest, articleRequest, pairRequest, deleteRequest, recentRequest];
 
 const qaSession = ref<QaSession | null>(null), qaMessages = ref<QaMessage[]>([]);
 const qaQuestion = ref(""), qaLoading = ref(false), qaAsking = ref(false), qaError = ref("");
@@ -44,17 +52,16 @@ function clearPrivateData() {
   clearQa();
   dataRequests.forEach(request => request.invalidate());
   profile.value = null; favlists.value = []; recent.value = []; favoriteItems.value = [];
-  selectedFavlist.value = null; creations.value = []; followees.value = [];
+  selectedFavlist.value = null; recentNotes.value = []; recentLoading.value = false; recentFailed.value = false;
   articles.value = []; bubbles.value = []; selectedArticle.value = null;
   pairCode.value = ""; pairLoading.value = false; detailLoading.value = false;
   deletingId.value = ""; loading.value = false; error.value = "";
   activeTab.value = "favorites";
-  if (view.value !== "experiences") view.value = "home";
 }
 
 async function loadActive() {
   const request = tabRequest.begin();
-  if (!status.value?.authenticated || ["likes", "comments"].includes(activeTab.value)) {
+  if (!status.value?.authenticated || route !== "library") {
     loading.value = false; return;
   }
   const tab = activeTab.value;
@@ -67,12 +74,6 @@ async function loadActive() {
         api<{ Items: ContentItem[] }>("/zhihu/favorites/recent", options),
       ]);
       if (request.isCurrent()) { favlists.value = lists.Items || []; recent.value = data.Items || []; }
-    } else if (tab === "creations") {
-      const data = await api<{ Items: ContentItem[] }>("/zhihu/contents?content_type=all", options);
-      if (request.isCurrent()) creations.value = data.Items || [];
-    } else if (tab === "followees") {
-      const data = await api<{ Items: Followee[] }>("/zhihu/followees", options);
-      if (request.isCurrent()) followees.value = data.Items || [];
     } else {
       const data = await api<{ items: ArticleGroup[] }>("/articles", options);
       if (request.isCurrent()) {
@@ -84,6 +85,17 @@ async function loadActive() {
     }
   } catch (reason) { if (request.isCurrent()) showError(reason); }
   finally { if (request.isCurrent()) loading.value = false; }
+}
+
+async function loadRecentNotes() {
+  const request = recentRequest.begin();
+  recentLoading.value = true; recentFailed.value = false;
+  try {
+    const data = await api<{ items: Bubble[] }>("/bubbles", { signal: request.signal });
+    if (request.isCurrent()) recentNotes.value = data.items.slice(0, 3);
+  } catch {
+    if (request.isCurrent()) recentFailed.value = true;
+  } finally { if (request.isCurrent()) recentLoading.value = false; }
 }
 
 async function loadStatus() {
@@ -98,7 +110,16 @@ async function loadStatus() {
       if (!request.isCurrent()) return;
       profile.value = nextProfile;
     }
-    if (request.isCurrent()) await loadActive();
+    if (!request.isCurrent()) return;
+    if (route === "library") {
+      const source = new URLSearchParams(window.location.search).get("source");
+      if (source && nextStatus.authenticated) activeTab.value = "bubbles";
+      await loadActive();
+      const article = source && articles.value.find(item => item.article_key === source);
+      if (request.isCurrent() && activeTab.value === "bubbles" && !selectedArticle.value && article) {
+        await selectArticle(article);
+      }
+    } else if (route === "home" && nextStatus.authenticated) await loadRecentNotes();
   } catch (reason) { if (request.isCurrent()) showError(reason, loadStatus); }
   finally { if (request.isCurrent()) { authBusy.value = false; if (!status.value?.authenticated) loading.value = false; } }
 }
@@ -226,95 +247,104 @@ async function retry() { await retryOperation(); }
 
 function formatDate(timestamp?: number) { return timestamp ? new Date(timestamp * 1000).toLocaleString("zh-CN") : "未标注时间"; }
 
+function restoreWorkspaceLink() {
+  try {
+    if (Object.hasOwn(resumeLabels, path)) localStorage.setItem("thinkspace:last-workspace", path);
+    const previous = localStorage.getItem("thinkspace:last-workspace");
+    if (previous && Object.hasOwn(resumeLabels, previous)) resume.value = { href: previous, label: resumeLabels[previous] };
+  } catch { /* The workspace remains usable with storage disabled. */ }
+}
+
+function onPageShow(event: PageTransitionEvent) {
+  if (!event.persisted) return;
+  restoreWorkspaceLink();
+  void loadStatus();
+}
+
 onMounted(async () => {
-  if (isBranchPage || isBubblePage) return;
+  document.title = ({
+    home: "ThinkSpace · 首页", library: "资料库 · ThinkSpace", account: "个人中心 · ThinkSpace",
+    space: isBubblePage ? "思维泡泡 · ThinkSpace" : isBranchPage ? "思想分叉 · ThinkSpace"
+      : path === "/space/debate" ? "长桌讨论室 · ThinkSpace" : "思考空间 · ThinkSpace",
+  })[route];
+  restoreWorkspaceLink();
+  window.addEventListener("pageshow", onPageShow);
   if (new URLSearchParams(window.location.search).get("auth") === "success") window.history.replaceState({}, "", "/");
   await loadStatus();
 });
-onBeforeUnmount(() => { clearQa(); authRequest.invalidate(); dataRequests.forEach(request => request.invalidate()); });
+onBeforeUnmount(() => {
+  window.removeEventListener("pageshow", onPageShow);
+  clearQa(); authRequest.invalidate(); dataRequests.forEach(request => request.invalidate());
+});
 </script>
 
 <template>
+  <SiteHeader :section="route" :status="status" :profile="profile" />
+  <div v-if="error" class="shell hub-alert">
+    <div class="error-banner" role="alert"><span>{{ error }}</span><button @click="retry">重试</button></div>
+  </div>
   <ThoughtBubblePage v-if="isBubblePage" />
   <ThoughtBranches v-else-if="isBranchPage" />
-  <main v-else class="shell">
-    <header class="topbar">
-      <a class="brand" href="/" aria-label="ThinkSpace 首页">
-        <span class="brand-mark">T</span>
-        <span><strong>ThinkSpace</strong><small>让阅读留下自己的思考</small></span>
-      </a>
-      <nav class="site-nav" aria-label="主导航">
-        <button :class="{ active: view !== 'experiences' }" @click="view = 'home'">资料与想法</button>
-        <button :class="{ active: view === 'experiences' }" @click="view = 'experiences'">思考体验</button>
-        <a href="/thought-branches">思想分叉</a>
-        <a href="/thought-bubbles">思维泡泡</a>
-      </nav>
-      <div v-if="status?.authenticated" class="account-actions">
-        <button
-          class="mode-badge clickable"
-          :title="profile?.fullname || '查看用户信息'"
-          aria-label="查看用户信息"
-          @click="view = 'profile'"
-          :disabled="authBusy"
-        >
-          <img v-if="profile?.avatar_path" class="badge-avatar" :src="profile.avatar_path" alt="" />
-          {{ profile?.fullname || (status.mode === "demo" ? "本地演示" : "知乎已授权") }}
-        </button>
-        <button class="button secondary" @click="createPairCode" :disabled="pairLoading || authBusy">
-          {{ pairLoading ? "生成中…" : "连接阅读扩展" }}
-        </button>
-        <button class="text-button" @click="logout" :disabled="authBusy">退出</button>
+  <WorkspaceHome v-else-if="route === 'home'" :authenticated="!!status?.authenticated"
+    :recent="recentNotes" :loading="authBusy || recentLoading" :failed="recentFailed" :resume="resume" />
+  <main v-else-if="route === 'space'" class="shell hub-page">
+    <template v-if="path === '/space/debate'">
+      <div class="hub-page-title">
+        <a class="hub-back" href="/space">思考空间</a>
+        <h1>长桌讨论室</h1><p>角色发言为预设示例。你可以换话题、发言，或查看动作试演。</p>
       </div>
-    </header>
-
-    <div v-if="error && view !== 'experiences'" class="error-banner" role="alert">
-      <span>{{ error }}</span><button @click="retry">重试</button>
+      <iframe src="/experiences/debate/" title="长桌讨论室" class="experience-frame"></iframe>
+    </template>
+    <template v-else>
+      <div class="hub-page-title">
+        <h1>思考空间</h1><p>选择一种方式，把刚读到的内容再想一遍。</p>
+      </div>
+      <div class="hub-space-tools"><SpaceTools /></div>
+    </template>
+  </main>
+  <main v-else class="shell hub-page">
+    <div class="hub-page-title">
+      <h1>{{ route === "account" ? "个人中心" : "资料库" }}</h1>
+      <p v-if="route === 'library'">在收藏里提问，按来源回看记下的想法。</p>
+      <p v-if="status?.oauth_expired" class="warning">知乎授权已过期，请退出后重新授权。</p>
     </div>
-    <ExperienceGallery v-if="view === 'experiences'" />
-    <section v-else-if="!status?.authenticated" class="hero">
-      <div class="eyebrow">ZHIHU × THINKSPACE</div>
-      <h1>读到的内容，<br /><em>长成自己的想法。</em></h1>
-      <p class="hero-copy">连接知乎账号，集中查看公开收藏与创作；阅读时用悬浮泡泡记录疑问、引用和判断。</p>
-      <div class="hero-actions">
-        <button class="button primary" @click="loginZhihu" :disabled="!status?.oauth_configured || authBusy">
-          使用知乎账号登录
-        </button>
-        <button v-if="status?.demo_enabled" class="button secondary" @click="loginDemo" :disabled="authBusy">先体验本地演示</button>
-        <button class="button secondary" @click="view = 'experiences'">先看思考体验</button>
+    <section v-if="!status?.authenticated" class="panel hub-gate" aria-label="登录">
+      <h2>连接你的阅读资料</h2>
+      <p>登录后可查看收藏、阅读手记和个人资料。</p>
+      <div class="hub-welcome-actions">
+        <button class="hub-action primary" @click="loginZhihu" :disabled="!status?.oauth_configured || authBusy">使用知乎账号登录</button>
+        <button v-if="status?.demo_enabled" class="hub-action quiet" @click="loginDemo" :disabled="authBusy">先体验本地演示</button>
       </div>
-      <p v-if="status && !status.oauth_configured" class="setup-note">
-        当前环境尚未配置真实知乎授权。登录骨架已提供，真实账号链路需配置凭证并完成联调。
-        可以先体验演示资料、泡泡动画和预设讨论；演示内容不是你的知乎数据。
-      </p>
-      <div class="boundary-note">
-        <strong>数据边界</strong>
-        <span>只通过官方接口读取授权范围内的数据。收藏摘要不是全文；点赞与评论历史在公开文档中暂未开放。</span>
-      </div>
+      <p v-if="status && !status.oauth_configured" class="hub-help">当前环境可以使用演示账号体验，知乎授权待配置。</p>
     </section>
 
-    <template v-else>
-      <UserProfile v-if="view === 'profile'" @back="view = 'home'" />
-
-      <template v-else>
-      <section class="workspace-heading">
-        <div>
-          <div class="eyebrow">MY THINKSPACE</div>
-          <h1>阅读资料与思考</h1>
+    <template v-else-if="route === 'account'">
+      <section id="extension" class="panel hub-account-tools" aria-label="账户与扩展">
+        <div><h2>阅读扩展</h2><p>在知乎原文旁记录想法，保存到当前账户。</p></div>
+        <button class="hub-action quiet" @click="createPairCode" :disabled="pairLoading || authBusy">
+          {{ pairLoading ? "生成中…" : "连接阅读扩展" }}
+        </button>
+        <button class="text-button" @click="logout" :disabled="authBusy">退出登录</button>
+        <div v-if="pairCode" class="pair-panel">
+          <div><strong>扩展一次性配对码</strong><span>5 分钟内粘贴到浏览器扩展，不要发给其他人。</span></div>
+          <code>{{ pairCode }}</code>
+          <button class="text-button" @click="pairCode = ''">关闭</button>
         </div>
-        <p v-if="status.oauth_expired" class="warning">知乎授权已过期，请退出后重新授权。</p>
       </section>
+      <UserProfile />
+      <details class="hub-data-boundary">
+        <summary>数据范围</summary>
+        <p>收藏和创作仅显示公开摘要。当前公开接口未提供点赞及评论历史。</p>
+      </details>
+    </template>
 
-      <section v-if="pairCode" class="pair-panel">
-        <div><strong>扩展一次性配对码</strong><span>5 分钟内粘贴到浏览器扩展，不要发给其他人。</span></div>
-        <code>{{ pairCode }}</code>
-        <button class="text-button" @click="pairCode = ''">关闭</button>
-      </section>
-
+    <template v-else>
       <nav class="tabs" aria-label="数据分类">
         <button
           v-for="tab in tabs"
           :key="tab.key"
           :class="{ active: activeTab === tab.key }"
+          :aria-pressed="activeTab === tab.key"
           @click="selectTab(tab.key)"
         >{{ tab.label }}</button>
       </nav>
@@ -412,38 +442,7 @@ onBeforeUnmount(() => { clearQa(); authRequest.invalidate(); dataRequests.forEac
         </template>
       </section>
 
-      <section v-if="activeTab === 'creations'" class="panel">
-        <div class="panel-heading"><h2>公开创作</h2><span>回答、文章、想法等</span></div>
-        <div class="card-list">
-          <article v-for="item in creations" :key="item.Url" class="content-card">
-            <div class="content-meta">{{ item.ContentType }} · {{ formatDate(item.CreatedAt) }}</div>
-            <a :href="item.Url" target="_blank" rel="noreferrer">{{ item.Title }}</a>
-            <p>{{ item.Summary }}</p>
-            <footer><span>公开摘要</span><span>{{ item.LikeCount || 0 }} 赞同 · {{ item.FavoriteCount || 0 }} 收藏</span></footer>
-          </article>
-        </div>
-        <p v-if="!loading && creations.length === 0" class="empty">没有可展示的公开创作。</p>
-      </section>
-
-      <section v-else-if="activeTab === 'followees'" class="panel">
-        <div class="panel-heading"><h2>关注用户</h2><span>公开范围</span></div>
-        <a v-for="person in followees" :key="person.Url" class="person" :href="person.Url" target="_blank" rel="noreferrer">
-          <span class="avatar">{{ person.Fullname.slice(0, 1) }}</span>
-          <span><strong>{{ person.Fullname }}</strong><small>{{ person.Headline || "无简介" }}</small></span>
-          <span>{{ person.FollowerCount }} 关注者</span>
-        </a>
-        <p v-if="!loading && followees.length === 0" class="empty">没有可展示的关注用户。</p>
-      </section>
-
-      <section v-else-if="activeTab === 'likes' || activeTab === 'comments'" class="panel capability-panel">
-        <span class="capability-icon">!</span>
-        <h2>{{ activeTab === "likes" ? "点赞历史" : "评论历史" }}暂未接入</h2>
-        <p>截至 2026-11-14 查阅的知乎官方公开用户数据文档，没有提供这类历史记录接口。</p>
-        <p>ThinkSpace 不会把内容上的累计{{ activeTab === "likes" ? "点赞数" : "评论数" }}误当成你的历史，也不会调用私有网页 API 绕过权限。</p>
-        <a href="https://developer.zhihu.com/docs" target="_blank" rel="noreferrer">查看知乎开放平台文档</a>
-      </section>
-
-      <section v-else-if="activeTab === 'bubbles'" class="content-grid bubble-layout">
+      <section v-if="activeTab === 'bubbles'" class="content-grid bubble-layout">
         <div class="panel">
           <div class="panel-heading"><h2>有泡泡的文章</h2><span>{{ articles.length }} 篇</span></div>
           <button v-for="article in articles" :key="article.article_key" class="article-row" :class="{ selected: selectedArticle?.article_key === article.article_key }" @click="selectArticle(article)">
@@ -457,21 +456,19 @@ onBeforeUnmount(() => { clearQa(); authRequest.invalidate(); dataRequests.forEac
         <div class="panel bubble-detail">
           <template v-if="selectedArticle">
             <div class="panel-heading"><h2>{{ selectedArticle.title }}</h2></div>
-            <a class="source-link" :href="selectedArticle.source_url" target="_blank" rel="noreferrer">打开知乎原文 ↗</a>
+            <a class="source-link" :href="selectedArticle.source_url" target="_blank" rel="noreferrer">打开知乎原文</a>
             <p v-if="detailLoading" class="empty" role="status">正在加载想法…</p>
             <article v-for="bubble in bubbles" :key="bubble.id" class="bubble-card">
               <time>{{ formatDate(bubble.created_at) }}</time>
               <blockquote v-if="bubble.quote">{{ bubble.quote }}</blockquote>
               <p>{{ bubble.body }}</p>
+              <a class="hub-note-link" :href="`/thought-bubbles?note=${encodeURIComponent(bubble.id)}`">在思维泡泡中阅读</a>
               <button class="text-button danger" @click="removeBubble(bubble.id)" :disabled="deletingId === bubble.id">{{ deletingId === bubble.id ? "删除中…" : "删除" }}</button>
             </article>
           </template>
           <p v-else class="empty">选择左侧文章，查看与之关联的想法和选中引用。</p>
         </div>
       </section>
-      </template>
     </template>
-
-    <footer class="page-footer">ThinkSpace 首版接入骨架 · 凭证仅存服务端 · 收藏不等于认同</footer>
   </main>
 </template>

@@ -7,6 +7,7 @@ export interface SpaceNote {
   quote?: string;
   url?: string;
   createdAt?: number;
+  articleKey?: string;
   parents?: string[];
   generated?: boolean;
 }
@@ -23,7 +24,8 @@ export const sampleNotes: SpaceNote[] = [
 
 export function fromSavedBubble(bubble: Bubble): SpaceNote {
   return { id: bubble.id, text: bubble.body, source: bubble.title || "阅读手记", quote: bubble.quote,
-    url: safeSourceUrl(bubble.source_url), createdAt: bubble.created_at };
+    url: safeSourceUrl(bubble.source_url), createdAt: bubble.created_at,
+    ...(bubble.article_key ? { articleKey: bubble.article_key } : {}) };
 }
 
 export function safeSourceUrl(value?: string): string | undefined {
