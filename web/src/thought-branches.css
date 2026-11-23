@@ -6,7 +6,6 @@
   --t-paper:#f9fbfd;
   color:var(--t-ink);
   background:#edf2f7;
-  font-family:Inter,"PingFang SC","Microsoft YaHei",sans-serif;
   min-height:100dvh;
   display:grid;
   grid-template-columns:216px minmax(0,1fr);

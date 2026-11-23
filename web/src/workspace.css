@@ -26,7 +26,8 @@
   border-radius: 10px;
   color: white;
   background: #304a66;
-  font: 700 22px Georgia, serif;
+  font-size: 22px;
+  font-weight: 700;
 }
 .hub-nav { display: flex; gap: 4px; }
 .hub-nav a, .hub-account { min-height: 42px; padding: 7px 15px; border-radius: 11px; color: #546a81; font-size: 14px; white-space: nowrap; }
