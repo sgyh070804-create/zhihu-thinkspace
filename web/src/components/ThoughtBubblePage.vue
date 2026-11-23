@@ -207,12 +207,11 @@ onBeforeUnmount(() => {
   <main class="thought-space" :data-renderer="renderer" :data-raf="rafRate">
     <div class="ts-page-content" :inert="!!composer">
       <section class="ts-intro" aria-labelledby="ts-title">
-        <div><a class="hub-back" href="/space">思考空间</a><h1 id="ts-title">思维泡泡</h1><p>留住阅读里的片刻灵光，给新的连接一点空间。</p></div>
-        <div class="ts-intro-detail"><SpaceIcon name="spark"/><span>不急着找到答案<br/><strong>先让思绪自由游动</strong></span></div>
+        <div><a class="hub-back" href="/space">思考空间</a><h1 id="ts-title">思维泡泡</h1></div>
       </section>
 
       <div class="ts-workspace" :class="{ 'is-reading': reading, 'is-busy': busy }">
-        <section class="ts-stage" aria-label="思绪空间">
+        <section class="ts-stage" aria-label="思绪空间，点击泡泡阅读，拖动泡泡连接">
           <div ref="host" class="ts-bubble-host" tabindex="-1"></div>
           <div class="ts-stage-heading" :inert="!!reading">
             <div><span class="ts-live-dot"></span>思绪空间 <small>{{ sceneNotes.length }} 颗想法</small></div>
@@ -221,8 +220,8 @@ onBeforeUnmount(() => {
           <Transition name="ts-fade">
             <div v-if="loading || error || !sceneNotes.length" class="ts-stage-state">
               <div v-if="loading" class="ts-loading-orb" aria-hidden="true"></div><SpaceIcon v-else name="bubbles"/>
-              <h2>{{ loading ? '把思绪轻轻展开…' : error ? '思绪还在路上' : draftsOnly ? '新的连接，等你写下' : query ? '没有找到这颗想法' : '从一个小小的想法开始' }}</h2>
-              <p>{{ loading ? '正在读取你的泡泡' : error || (draftsOnly ? '拖动两颗泡泡相遇，写下它们带来的新观点。' : query ? '试试其他关键词，或清空搜索。' : '在阅读扩展里记下想法，它会出现在这里。') }}</p>
+              <h2>{{ loading ? '正在读取泡泡…' : error ? '读取失败' : draftsOnly ? '暂无连接草稿' : query ? '未找到想法' : '暂无泡泡' }}</h2>
+              <p v-if="error">{{ error }}</p>
               <div v-if="error" class="ts-state-actions"><button class="ts-primary" @click="loadAccount">重新读取</button><button class="ts-secondary" @click="useSamples">先看示例</button></div>
               <button v-else-if="!loading && query" class="ts-secondary" @click="query = ''">清空搜索</button>
               <button v-else-if="!loading && draftsOnly" class="ts-secondary" @click="draftsOnly = false">回到全部想法</button>
@@ -247,40 +246,34 @@ onBeforeUnmount(() => {
               <div class="ts-reader-nav"><button class="ts-icon-button" aria-label="上一个想法" :disabled="sceneNotes.length < 2" @click="stepReader(-1)"><SpaceIcon name="left"/></button><span>{{ readingIndex + 1 }} / {{ sceneNotes.length }}</span><button class="ts-icon-button" aria-label="下一个想法" :disabled="sceneNotes.length < 2" @click="stepReader(1)"><SpaceIcon name="right"/></button></div>
             </section>
           </Transition>
-          <div class="ts-stage-bottom" :inert="!!reading">
-            <span><SpaceIcon name="bubbles"/>点击阅读 <i>·</i> 拖动相遇，松手连接</span>
-            <span class="ts-stage-caption">让连接自然发生</span>
-          </div>
         </section>
 
         <aside class="ts-notebook" aria-labelledby="ts-notebook-title" :inert="busy && !composer">
-          <header><div><span class="ts-kicker">THOUGHT COLLECTION</span><h2 id="ts-notebook-title">思绪手记 <span>{{ filtered.length }}</span></h2></div><button class="ts-icon-button" :disabled="busy || loading" :aria-label="mode === 'sample' ? '重置示例空间' : '刷新我的泡泡'" @click="mode === 'sample' ? useSamples() : loadAccount()"><SpaceIcon name="refresh"/></button></header>
-          <p class="ts-data-note">{{ mode === 'sample' ? '示例观点，供你感受思绪的流动。' : '来自当前账号保存的阅读泡泡。' }}</p>
+          <header><h2 id="ts-notebook-title">{{ mode === 'sample' ? '示例手记' : '思绪手记' }} <span>{{ filtered.length }}</span></h2><button class="ts-icon-button" :disabled="busy || loading" :aria-label="mode === 'sample' ? '重置示例空间' : '刷新我的泡泡'" @click="mode === 'sample' ? useSamples() : loadAccount()"><SpaceIcon name="refresh"/></button></header>
           <div class="ts-segments" aria-label="手记分类"><span :class="{ 'at-drafts': draftsOnly }"></span><button :disabled="busy" :aria-pressed="!draftsOnly" @click="draftsOnly = false">全部想法</button><button :disabled="busy" :aria-pressed="draftsOnly" @click="draftsOnly = true">连接草稿 <small>{{ draftCount }}</small></button></div>
           <label class="ts-search"><SpaceIcon name="search"/><input v-model="query" :disabled="busy" placeholder="寻找一个想法…" aria-label="搜索想法"/><button v-if="query" class="ts-icon-button" aria-label="清空搜索" @click="query = ''"><SpaceIcon name="close"/></button></label>
           <div v-if="loading" class="ts-skeletons" aria-hidden="true"><div v-for="n in 3" :key="n"></div></div>
           <TransitionGroup v-else name="ts-notes" tag="div" class="ts-note-list" :class="{ 'is-picking': picking }">
             <button v-for="note in sceneNotes" :key="note.id" class="ts-note-card" :class="{ 'is-active': reading?.id === note.id, 'is-picked': picked.includes(note.id) }" :data-note="note.id" :aria-pressed="picking ? picked.includes(note.id) : reading?.id === note.id" :disabled="busy" @click="openNote(note)">
               <span class="ts-note-meta"><SpaceIcon :name="note.generated ? 'link' : 'bubbles'"/><span>{{ note.source }}</span><i v-if="picking">{{ picked.includes(note.id) ? '已选' : '选择' }}</i><SpaceIcon v-else name="right"/></span>
-              <p>{{ note.text }}</p><span class="ts-card-cue">{{ picking ? '选择两个想法，试着建立连接' : note.generated ? '本页草稿 · 点击阅读' : '点击，走进这颗想法' }}</span>
+              <p>{{ note.text }}</p>
             </button>
           </TransitionGroup>
-          <div v-if="!sceneNotes.length && !loading" class="ts-list-empty">{{ error ? '读取后，你的手记会出现在这里。' : '给尚未出现的想法，留一个位置。' }}</div>
           <div class="ts-pagination"><span>{{ filtered.length ? page * pageSize + 1 : 0 }}–{{ Math.min((page + 1) * pageSize, filtered.length) }} / {{ filtered.length }}</span><div><button class="ts-icon-button" aria-label="上一组泡泡" :disabled="page === 0 || busy" @click="page--"><SpaceIcon name="left"/></button><button class="ts-icon-button" aria-label="下一组泡泡" :disabled="page >= pageCount - 1 || busy" @click="page++"><SpaceIcon name="right"/></button></div></div>
           <div class="ts-connection-tools"><button v-if="!picking" class="ts-secondary" :disabled="sceneNotes.length < 2 || busy" @click="closeReader(); picking = true"><SpaceIcon name="link"/>连接两个想法</button><template v-else><button class="ts-primary" :disabled="picked.length !== 2 || busy" @click="startMerge">{{ picked.length === 2 ? '写下新的连接' : `再选 ${2 - picked.length} 个想法` }}</button><button class="ts-quiet" :disabled="busy" @click="picking = false; picked = []">取消</button></template><button v-if="lastMerge" class="ts-icon-button" aria-label="撤销上一次连接" :disabled="busy" @click="undoMerge"><SpaceIcon name="undo"/></button></div>
         </aside>
       </div>
-      <footer class="ts-page-footer"><span>{{ mode === 'sample' ? '示例不与账号同步。' : '原始泡泡保留在账号中。' }}连接草稿仅留在本页，离开前请导出。</span><div><button v-if="draftCount" class="ts-quiet" @click="exportDrafts"><SpaceIcon name="download"/>导出草稿</button><button v-if="mode === 'sample' && status?.authenticated" class="ts-quiet" :disabled="busy" @click="loadAccount">回到我的泡泡</button><a v-else-if="mode === 'sample'" href="/account">连接阅读资料</a><a v-else href="/library">打开资料库</a></div></footer>
+      <footer class="ts-page-footer"><span v-if="draftCount">草稿仅保留在本页。</span><div><button v-if="draftCount" class="ts-quiet" @click="exportDrafts"><SpaceIcon name="download"/>导出草稿</button><button v-if="mode === 'sample' && status?.authenticated" class="ts-quiet" :disabled="busy" @click="loadAccount">回到我的泡泡</button><a v-else-if="mode === 'sample'" href="/account">连接阅读资料</a><a v-else href="/library">打开资料库</a></div></footer>
     </div>
     <Transition name="ts-toast"><div v-if="notice" class="ts-toast" role="status">{{ notice }}</div></Transition>
     <Transition name="ts-composer">
       <div v-if="composer" class="ts-composer-backdrop" @click.self="cancelDraft">
         <form ref="dialog" class="ts-composer-dialog" role="dialog" aria-modal="true" aria-labelledby="ts-compose-title" @submit.prevent="confirmDraft" @keydown="trapFocus">
           <header><span class="ts-composer-symbol"><SpaceIcon name="link"/></span><button type="button" class="ts-icon-button" aria-label="取消连接" @click="cancelDraft"><SpaceIcon name="close"/></button></header>
-          <span class="ts-kicker">WHEN THOUGHTS MEET</span><h2 id="ts-compose-title">两个想法，一次新的连接。</h2><p class="ts-composer-lead">它们让你想到了什么？用自己的话记下来。</p>
+          <h2 id="ts-compose-title">连接两个想法</h2>
           <div class="ts-parents"><blockquote>{{ composer.a.text }}</blockquote><span>与</span><blockquote>{{ composer.b.text }}</blockquote></div>
           <label for="ts-connection-body">我的新观点</label><textarea id="ts-connection-body" ref="input" v-model="body" required maxlength="4000" placeholder="也许，这两件事之间的联系是…" rows="4"></textarea>
-          <div class="ts-compose-note"><span>由你书写，不调用 AI。原想法不会被删除。</span><span>{{ body.length }} / 4000</span></div>
+          <div class="ts-compose-note"><span>{{ body.length }} / 4000</span></div>
           <footer><button type="button" class="ts-secondary" @click="cancelDraft">再想一想</button><button type="submit" class="ts-primary" :disabled="!body.trim()">形成新的泡泡</button></footer>
         </form>
       </div>

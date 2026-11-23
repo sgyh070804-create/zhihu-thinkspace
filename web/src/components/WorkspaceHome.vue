@@ -30,18 +30,18 @@ const quote = pickWorkspaceQuote();
 
     <div class="hub-home-grid">
       <section aria-labelledby="hub-tools-title">
-        <div class="hub-section-heading"><h2 id="hub-tools-title">思考工具</h2><a href="/space">全部工具</a></div>
+        <div class="hub-section-heading"><h2 id="hub-tools-title">思考工具</h2></div>
         <SpaceTools />
       </section>
       <section aria-labelledby="hub-recent-title">
         <div class="hub-section-heading"><h2 id="hub-recent-title">最近想法</h2><a href="/thought-bubbles">查看泡泡</a></div>
         <div class="hub-recent">
           <p v-if="loading" class="hub-recent-empty" role="status">正在读取想法…</p>
-          <p v-else-if="failed" class="hub-recent-empty">暂时无法读取最近想法。<a href="/thought-bubbles">到泡泡页重试</a></p>
-          <p v-else-if="!authenticated" class="hub-recent-empty"><a href="/account">登录</a>后，这里会显示你的阅读手记。</p>
-          <p v-else-if="!recent.length" class="hub-recent-empty">阅读时通过扩展记下的想法会出现在这里。<a href="/account#extension">连接阅读扩展</a></p>
+          <p v-else-if="failed" class="hub-recent-empty">读取失败。<a href="/thought-bubbles">重试</a></p>
+          <p v-else-if="!authenticated" class="hub-recent-empty"><a href="/account">登录查看</a></p>
+          <p v-else-if="!recent.length" class="hub-recent-empty">暂无手记 <a href="/account#extension">连接阅读扩展</a></p>
           <a v-for="bubble in recent" :key="bubble.id" class="hub-recent-item" :href="`/thought-bubbles?note=${encodeURIComponent(bubble.id)}`">
-            <span><strong>{{ bubble.body }}</strong><small>{{ bubble.title || "阅读手记" }}</small></span>
+            <span><strong>{{ bubble.body }}</strong><small v-if="bubble.title">{{ bubble.title }}</small></span>
             <SpaceIcon name="right" />
           </a>
         </div>

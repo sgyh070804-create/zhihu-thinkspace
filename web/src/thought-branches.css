@@ -114,29 +114,6 @@
   background:#fff;
 }
 
-.thought-sidebar-foot {
-  margin-top:auto;
-  padding:10px 8px 0;
-  color:var(--t-muted);
-}
-
-.thought-sidebar-foot>svg {
-  color:#8da2b8;
-  width:28px;
-  height:28px;
-}
-
-.thought-sidebar-foot p {
-  font-size:13px;
-  line-height:1.9;
-}
-
-.thought-sidebar-foot small {
-  font-size:11px;
-  line-height:1.8;
-  display:block;
-}
-
 .thought-main {
   min-width:0;
   padding:0 30px;
@@ -225,26 +202,11 @@
   gap:18px;
 }
 
-.thought-eyebrow {
-  font-size:10px;
-  letter-spacing:2px;
-  line-height:1.6;
-  color:#7c92a9;
-  margin:0 0 7px;
-  font-weight:600;
-}
-
 .thought-intro h1 {
   font-size:28px;
   font-weight:550;
   letter-spacing:-.8px;
   margin:0 0 4px;
-}
-
-.thought-intro>div>p:last-child {
-  font-size:14px;
-  color:var(--t-muted);
-  margin:0;
 }
 
 .thought-local {
@@ -495,30 +457,6 @@
   line-height:1.5;
 }
 
-.canvas-caption {
-  position:absolute;
-  bottom:13px;
-  left:18px;
-  display:flex;
-  gap:8px;
-  align-items:center;
-  color:#7f93a9;
-  font-size:11px;
-  pointer-events:none;
-}
-
-.path-line {
-  width:18px;
-  height:2px;
-  background:#7897b6;
-  display:inline-block;
-}
-
-.caption-separator {
-  opacity:.6;
-  margin:0 2px;
-}
-
 .current-question {
   display:grid;
   grid-template-columns:1fr 1.05fr;
@@ -628,12 +566,6 @@
   margin-top:auto;
   padding-top:11px;
   color:#6e88a2!important;
-}
-
-.root-question-note {
-  color:var(--t-muted);
-  font-size:13px;
-  margin:0 0 12px;
 }
 
 .question-judgment {
@@ -976,7 +908,7 @@
     border-right:0;
     border-bottom:1px solid var(--t-line);
   }
-  .thought-sidebar-foot,.exploration-heading {
+  .exploration-heading {
     display:none;
   }
   .exploration-list {
@@ -1021,13 +953,6 @@
   .thought-intro h1 {
     font-size:25px;
   }
-  .thought-intro>div>p:last-child {
-    font-size:13px;
-  }
-  .thought-eyebrow {
-    font-size:9px;
-    letter-spacing:1.3px;
-  }
   .thought-local {
     display:none;
   }
@@ -1067,10 +992,6 @@
   .tree-toolbar .icon-button svg {
     width:16px;
     height:16px;
-  }
-  .canvas-caption {
-    font-size:10px;
-    left:12px;
   }
   .current-question {
     grid-template-columns:1fr;

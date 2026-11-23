@@ -143,7 +143,6 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .qa-compose { display: flex; gap: 10px; align-items: flex-end; margin-top: 16px; }
 .qa-compose textarea { flex: 1; min-height: 52px; max-height: 140px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; resize: vertical; background: white; }
 .qa-compose textarea:focus { outline: 2px solid #b9d5c4; outline-offset: 1px; }
-.qa-note { margin: 10px 0 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
 .qa-error { margin: 12px 0 0; padding: 10px 12px; border-radius: 10px; background: #fff0ed; color: #943f34; font-size: 12px; }
 .page-footer { padding: 36px 0; color: var(--muted); font-size: 11px; text-align: center; }
 
