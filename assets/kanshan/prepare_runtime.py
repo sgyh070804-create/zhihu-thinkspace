@@ -18,6 +18,6 @@ for o in collection.objects:
 bpy.ops.object.select_all(action='DESELECT')
 for o in collection.objects:o.select_set(True)
 bpy.context.view_layer.objects.active=bpy.data.objects['Kanshan_Rig']
-target=R
+target=R.parents[1]/'packages/debate-room/assets/kanshan'
 bpy.ops.export_scene.gltf(filepath=str(target/'kanshan-runtime.glb'),export_format='GLB',use_selection=True,export_apply=False,export_animations=False)
 print('RUNTIME_FACES',total,flush=True)

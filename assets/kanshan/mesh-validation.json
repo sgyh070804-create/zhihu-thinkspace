@@ -2,14 +2,8 @@
   "blender": "4.5.0",
   "meshes": {
     "Kanshan_White_Continuous_Surface": {
-      "vertices": 80438,
-      "faces": 80436,
-      "boundary_edges": 0,
-      "nonmanifold_edges": 0
-    },
-    "Kanshan_Nose": {
-      "vertices": 2112,
-      "faces": 2050,
+      "vertices": 84334,
+      "faces": 84332,
       "boundary_edges": 0,
       "nonmanifold_edges": 0
     },
