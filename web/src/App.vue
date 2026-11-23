@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { api, ApiError } from "./api";
 import { RequestScope } from "./request-scope";
 import UserProfile from "./components/UserProfile.vue";
 import ExperienceGallery from "./components/ExperienceGallery.vue";
 import ThoughtBranches from "./components/ThoughtBranches.vue";
 import ThoughtBubblePage from "./components/ThoughtBubblePage.vue";
-import type { ArticleGroup, AuthStatus, Bubble, ContentItem, Favlist, Followee, Profile } from "./types";
+import type { ArticleGroup, AuthStatus, Bubble, ContentItem, Favlist, Followee, Profile, QaMessage, QaSession } from "./types";
 
 const isBranchPage = window.location.pathname.replace(/\/$/, "") === "/thought-branches";
 const isBubblePage = window.location.pathname.replace(/\/$/, "") === "/thought-bubbles";
@@ -29,6 +29,11 @@ const authRequest = new RequestScope(), tabRequest = new RequestScope(), favorit
 const articleRequest = new RequestScope(), pairRequest = new RequestScope(), deleteRequest = new RequestScope();
 const dataRequests = [tabRequest, favoriteRequest, articleRequest, pairRequest, deleteRequest];
 
+const qaSession = ref<QaSession | null>(null), qaMessages = ref<QaMessage[]>([]);
+const qaQuestion = ref(""), qaLoading = ref(false), qaAsking = ref(false), qaError = ref("");
+const qaList = ref<HTMLElement>();
+const qaRequest = new RequestScope(), qaMessageRequest = new RequestScope();
+
 let retryOperation: () => Promise<void> = loadStatus;
 function showError(reason: unknown, operation: () => Promise<void> = loadActive) {
   retryOperation = operation;
@@ -36,6 +41,7 @@ function showError(reason: unknown, operation: () => Promise<void> = loadActive)
 }
 
 function clearPrivateData() {
+  clearQa();
   dataRequests.forEach(request => request.invalidate());
   profile.value = null; favlists.value = []; recent.value = []; favoriteItems.value = [];
   selectedFavlist.value = null; creations.value = []; followees.value = [];
@@ -120,19 +126,69 @@ async function logout() {
 }
 
 function selectTab(tab: TabKey) {
+  clearQa();
   favoriteRequest.invalidate(); articleRequest.invalidate(); detailLoading.value = false;
   selectedFavlist.value = null; favoriteItems.value = []; selectedArticle.value = null; bubbles.value = [];
   activeTab.value = tab; void loadActive();
 }
+
+function clearQa() {
+  qaRequest.invalidate(); qaMessageRequest.invalidate();
+  qaSession.value = null; qaMessages.value = []; qaQuestion.value = "";
+  qaError.value = ""; qaLoading.value = false; qaAsking.value = false;
+}
+function collapseFavlist() {
+  favoriteRequest.invalidate(); detailLoading.value = false;
+  selectedFavlist.value = null; favoriteItems.value = []; clearQa();
+}
 async function selectFavlist(list: Favlist) {
+  if (selectedFavlist.value?.UrlToken === list.UrlToken) { collapseFavlist(); return; }
   const request = favoriteRequest.begin(); selectedFavlist.value = list;
   favoriteItems.value = []; detailLoading.value = true; error.value = "";
+  void openQa(list);
   try {
     const data = await api<{ Items: ContentItem[] }>(`/zhihu/favorites/contents?favlist_url_token=${encodeURIComponent(list.UrlToken)}`, { signal: request.signal });
     if (request.isCurrent()) favoriteItems.value = data.Items || [];
-  } catch (reason) { if (request.isCurrent()) showError(reason, () => selectFavlist(list)); }
+  } catch (reason) { if (request.isCurrent()) showError(reason, () => { collapseFavlist(); return selectFavlist(list); }); }
   finally { if (request.isCurrent()) detailLoading.value = false; }
 }
+async function openQa(list: Favlist) {
+  clearQa(); const request = qaRequest.begin();
+  qaLoading.value = true;
+  try {
+    const session = await api<QaSession>("/qa/sessions", {
+      method: "POST", signal: request.signal,
+      body: JSON.stringify({ favlist_url_token: list.UrlToken, favlist_title: list.Title }),
+    });
+    if (!request.isCurrent()) return;
+    const detail = await api<QaSession>(`/qa/sessions/${session.id}`, { signal: request.signal });
+    if (!request.isCurrent()) return;
+    qaSession.value = detail; qaMessages.value = detail.messages || [];
+    await nextTick();
+    if (request.isCurrent() && qaList.value) qaList.value.scrollTop = qaList.value.scrollHeight;
+  } catch (reason) {
+    if (request.isCurrent()) qaError.value = reason instanceof ApiError ? reason.message : "问答会话加载失败，请稍后重试。";
+  } finally { if (request.isCurrent()) qaLoading.value = false; }
+}
+function retryQa() { if (selectedFavlist.value) void openQa(selectedFavlist.value); }
+async function askQa() {
+  const question = qaQuestion.value.trim(), session = qaSession.value;
+  if (!question || !session || qaAsking.value) return;
+  const request = qaMessageRequest.begin();
+  qaAsking.value = true; qaError.value = "";
+  try {
+    const result = await api<{ session: QaSession; question: QaMessage; answer: QaMessage }>(`/qa/sessions/${session.id}/messages`, {
+      method: "POST", signal: request.signal, body: JSON.stringify({ question }),
+    });
+    if (!request.isCurrent() || qaSession.value?.id !== session.id) return;
+    qaMessages.value.push(result.question, result.answer); qaSession.value = result.session; qaQuestion.value = "";
+    await nextTick();
+    if (request.isCurrent() && qaList.value) qaList.value.scrollTop = qaList.value.scrollHeight;
+  } catch (reason) {
+    if (request.isCurrent()) qaError.value = reason instanceof ApiError ? reason.message : "提问失败，请稍后重试。";
+  } finally { if (request.isCurrent()) qaAsking.value = false; }
+}
+
 async function selectArticle(article: ArticleGroup) {
   const request = articleRequest.begin(); selectedArticle.value = article;
   bubbles.value = []; detailLoading.value = true; error.value = "";
@@ -175,7 +231,7 @@ onMounted(async () => {
   if (new URLSearchParams(window.location.search).get("auth") === "success") window.history.replaceState({}, "", "/");
   await loadStatus();
 });
-onBeforeUnmount(() => { authRequest.invalidate(); dataRequests.forEach(request => request.invalidate()); });
+onBeforeUnmount(() => { clearQa(); authRequest.invalidate(); dataRequests.forEach(request => request.invalidate()); });
 </script>
 
 <template>
@@ -273,6 +329,7 @@ onBeforeUnmount(() => { authRequest.invalidate(); dataRequests.forEach(request =
             :key="list.UrlToken"
             class="favlist"
             :class="{ selected: selectedFavlist?.UrlToken === list.UrlToken }"
+            :aria-expanded="selectedFavlist?.UrlToken === list.UrlToken"
             @click="selectFavlist(list)"
           >
             <strong>{{ list.Title }}</strong><span>{{ list.Description || "无描述" }}</span>
@@ -298,7 +355,64 @@ onBeforeUnmount(() => { authRequest.invalidate(); dataRequests.forEach(request =
         </div>
       </section>
 
-      <section v-else-if="activeTab === 'creations'" class="panel">
+      <section v-if="activeTab === 'favorites' && selectedFavlist" class="panel qa-panel">
+        <div class="panel-heading">
+          <h2>问「{{ selectedFavlist.Title }}」</h2>
+          <span>只基于收藏摘要</span>
+        </div>
+        <p v-if="qaLoading" class="empty">正在打开问答…</p>
+        <div v-else-if="!qaSession" class="empty">
+          <p>{{ qaError || "问答会话暂时不可用。" }}</p>
+          <button class="button secondary" @click="retryQa">重试</button>
+        </div>
+        <template v-else>
+          <div ref="qaList" class="qa-messages">
+            <p v-if="qaMessages.length === 0" class="empty">
+              还没有提问。可以问这个收藏夹里讲了什么、有哪些不同观点，或让它指出资料不足的地方。
+            </p>
+            <article
+              v-for="message in qaMessages"
+              :key="message.id"
+              :class="['qa-message', message.role]"
+            >
+              <div class="qa-role">
+                {{ message.role === "user" ? "你" : "ThinkSpace" }} · {{ formatDate(message.created_at) }}
+              </div>
+              <p class="qa-body">{{ message.body }}</p>
+              <div v-if="message.citations.length" class="qa-citations">
+                <a
+                  v-for="citation in message.citations"
+                  :key="citation.source_url"
+                  class="qa-citation"
+                  :href="citation.source_url"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <strong>{{ citation.title || "未命名来源" }}</strong>
+                  <small>{{ citation.author_name || "未标注作者" }} · 收藏摘要</small>
+                  <span>{{ citation.snippet }}</span>
+                </a>
+              </div>
+            </article>
+          </div>
+          <p v-if="qaError" class="qa-error" role="alert">{{ qaError }}</p>
+          <form class="qa-compose" @submit.prevent="askQa">
+            <textarea
+              v-model="qaQuestion"
+              maxlength="2000"
+              rows="2"
+              placeholder="在这个收藏夹里问一个问题……"
+              :disabled="qaAsking"
+            ></textarea>
+            <button class="button primary" type="submit" :disabled="qaAsking || !qaQuestion.trim()">
+              {{ qaAsking ? "回答中…" : "提问" }}
+            </button>
+          </form>
+          <p class="qa-note">回答只基于收藏摘要，不是全文；引用可以打开原文核对。当前不调用生成模型。</p>
+        </template>
+      </section>
+
+      <section v-if="activeTab === 'creations'" class="panel">
         <div class="panel-heading"><h2>公开创作</h2><span>回答、文章、想法等</span></div>
         <div class="card-list">
           <article v-for="item in creations" :key="item.Url" class="content-card">
@@ -329,7 +443,7 @@ onBeforeUnmount(() => { authRequest.invalidate(); dataRequests.forEach(request =
         <a href="https://developer.zhihu.com/docs" target="_blank" rel="noreferrer">查看知乎开放平台文档</a>
       </section>
 
-      <section v-else class="content-grid bubble-layout">
+      <section v-else-if="activeTab === 'bubbles'" class="content-grid bubble-layout">
         <div class="panel">
           <div class="panel-heading"><h2>有泡泡的文章</h2><span>{{ articles.length }} 篇</span></div>
           <button v-for="article in articles" :key="article.article_key" class="article-row" :class="{ selected: selectedArticle?.article_key === article.article_key }" @click="selectArticle(article)">

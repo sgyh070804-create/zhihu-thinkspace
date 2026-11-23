@@ -80,3 +80,30 @@ export interface Bubble {
   quote: string;
   created_at: number;
 }
+
+export interface QaCitation {
+  source_url: string;
+  title: string;
+  author_name: string;
+  snippet: string;
+  content_type: string;
+  rank: number;
+}
+
+export interface QaMessage {
+  id: string;
+  role: "user" | "assistant";
+  body: string;
+  created_at: number;
+  citations: QaCitation[];
+}
+
+export interface QaSession {
+  id: string;
+  favlist_url_token: number;
+  favlist_title: string;
+  created_at: number;
+  updated_at: number;
+  message_count: number;
+  messages?: QaMessage[];
+}
