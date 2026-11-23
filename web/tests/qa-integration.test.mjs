@@ -4,15 +4,16 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 
 const compile = source => ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
-const scopeSource = compile(readFileSync(new URL('../src/request-scope.ts', import.meta.url), 'utf8'));
-const { RequestScope } = await import('data:text/javascript;base64,' + Buffer.from(scopeSource).toString('base64'));
+const importSource = path => import('data:text/javascript;base64,' + Buffer.from(compile(readFileSync(new URL(path, import.meta.url), 'utf8'))).toString('base64'));
+const { RequestScope } = await importSource('../src/request-scope.ts');
+const { createWheelStep, wheelPixels, workspaceIndex, workspacePages } = await importSource('../src/workspace-navigation.ts');
 const setup = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8').split('<script setup lang="ts">')[1].split('</script>')[0].replace(/^import[\s\S]*?;\s*/gm, '');
 function harness() {
   const requests = [], unmount = [];
   const api = (path, options = {}) => new Promise((resolve, reject) => requests.push({ path, options, resolve, reject }));
-  const create = new Function('ref', 'nextTick', 'onMounted', 'onBeforeUnmount', 'api', 'ApiError', 'RequestScope', 'window', compile(setup) + '\nreturn {selectFavlist,collapseFavlist,selectTab,clearPrivateData,askQa,qaSession,qaQuestion,qaMessages,qaAsking,qaError,qaLoading,favoriteItems,selectedFavlist,error};');
+  const create = new Function('ref', 'computed', 'nextTick', 'onMounted', 'onBeforeUnmount', 'api', 'ApiError', 'RequestScope', 'window', 'document', 'createWheelStep', 'wheelPixels', 'workspaceIndex', 'workspacePages', compile(setup) + '\nreturn {selectFavlist,collapseFavlist,selectTab,clearPrivateData,askQa,qaSession,qaQuestion,qaMessages,qaAsking,qaError,qaLoading,favoriteItems,selectedFavlist,error};');
   const window = Object.assign(new EventTarget(), { location: { pathname: '/library' } });
-  const state = create(value => ({ value }), () => Promise.resolve(), () => {}, cb => unmount.push(cb), api, Error, RequestScope, window);
+  const state = create(value => ({ value }), getter => ({ get value() { return getter(); } }), () => Promise.resolve(), () => {}, cb => unmount.push(cb), api, Error, RequestScope, window, new EventTarget(), createWheelStep, wheelPixels, workspaceIndex, workspacePages);
   return { ...state, requests, unmount: () => unmount.forEach(cb => cb()) };
 }
 const list = id => ({ UrlToken: id, Title: String(id) });
@@ -28,6 +29,15 @@ test('collapsing a folder cancels both requests and ignores late contents and se
   await pending; await flush();
   assert.equal(h.qaSession.value, null); assert.deepEqual(h.favoriteItems.value, []);
   assert.equal(h.requests.length, 2); assert.equal(h.qaLoading.value, false);
+});
+
+test('one trackpad gesture cannot skip the middle workspace page', () => {
+  const step = createWheelStep();
+  assert.equal(step(24, 0), 0);
+  assert.equal(step(50, 15), 1);
+  assert.equal(step(190, 75), 0);
+  assert.equal(step(130, 190), 0);
+  assert.equal(step(-100, 370), -1);
 });
 
 test('a late failure from the old question cannot replace the new session error or busy state', async () => {
