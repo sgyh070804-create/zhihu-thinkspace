@@ -32,7 +32,7 @@ Three.js、GLTFLoader、SkeletonUtils 与 GLB 均已随包提供，不依赖 CDN
 
 ## 资源
 
-- `assets/kanshan/kanshan-runtime.glb`：2.35 MB 的减面运行版，8 个网格、11 根骨骼、41,928 顶点、83,824 三角面；三位角色共享几何和材质，各自克隆独立骨骼。
+- `assets/kanshan/kanshan-runtime.glb`：2.30 MB 的减面运行版，7 个网格、11 根骨骼、41,122 顶点、81,942 三角面。三位角色共享几何和材质，各自克隆独立骨骼。
 - `assets/kanshan/asset-info.json`：运行资源规格。
 - 仓库 [`assets/kanshan`](../../assets/kanshan)：压缩 Blender 可编辑原件、高精度 GLB、三视图、建模和减面源码、实际渲染与模型检查器。
 - 仓库 `releases/thinkspace-resources-v0.2.3.zip`：前端、完整素材、文档与验证截图组成的可下载资源包。

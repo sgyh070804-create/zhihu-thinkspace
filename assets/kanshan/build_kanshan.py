@@ -1,4 +1,4 @@
-import bpy, math, json, pathlib, shutil
+import bmesh, bpy, math, json, pathlib
 from mathutils import Vector
 ROOT=pathlib.Path(__file__).resolve().parent
 OUT=ROOT;OUT.mkdir(parents=True,exist_ok=True)
@@ -19,7 +19,7 @@ def mat(name,color,rough=.5,grain=False):
  return m
 white=mat('Warm white - fine matte polymer',(.91,.905,.89),.64,True)
 black=mat('Black limbs - soft rubber',(.012,.014,.015),.58,True)
-nosemat=mat('Black nose - satin highlight',(.009,.010,.011),.48,True)
+nosemat=mat('Black muzzle tip - satin',(.009,.010,.011),.54,True)
 eyemat=mat('Tiny black eyes',(.007,.008,.009),.25)
 def mesh(name,verts,faces,material,col=model):
  data=bpy.data.meshes.new(name+'_Mesh');data.from_pydata(verts,[],faces);data.update()
@@ -84,7 +84,14 @@ def organic(name,center,scale,material,power=2,segments=64,rows=32):
 
 # Cross-sections measured against the supplied front/profile/back reference.
 # z, half width, front depth, back depth, local muzzle extension.
-profile=[(.79,.05,-.02,.02,0),(.83,.35,-.29,.29,0),(.91,.65,-.48,.48,0),(1.05,.83,-.63,.64,0),(1.28,.94,-.74,.76,0),(1.65,.96,-.75,.85,0),(2.0,.93,-.69,.87,0),(2.33,.90,-.65,.84,0),(2.53,.89,-.65,.81,.13),(2.70,.88,-.67,.78,.43),(2.95,.86,-.70,.74,.48),(3.20,.83,-.73,.69,.44),(3.34,.78,-.69,.64,.30),(3.43,.64,-.46,.48,.06),(3.47,.30,-.20,.23,0),(3.48,.03,-.02,.02,0)]
+profile=[
+ (.79,.05,-.02,.02,0),(.83,.35,-.29,.29,0),(.91,.65,-.48,.48,0),(1.05,.83,-.63,.64,0),
+ (1.28,.94,-.74,.76,0),(1.65,.96,-.75,.85,0),(2.0,.93,-.69,.87,0),(2.30,.90,-.65,.84,.02),
+ (2.42,.90,-.65,.83,.14),(2.55,.89,-.65,.81,.39),(2.69,.88,-.67,.78,.61),
+ (2.86,.87,-.69,.75,.80),(3.04,.85,-.71,.72,.90),(3.16,.84,-.73,.70,.87),
+ (3.25,.82,-.72,.67,.80),(3.30,.80,-.71,.65,.66),(3.34,.78,-.69,.64,.45),
+ (3.37,.75,-.62,.60,.18),(3.43,.64,-.46,.48,.06),(3.47,.30,-.20,.23,0),(3.48,.03,-.02,.02,0),
+]
 rings=[]
 for j in range(145):
  z=.79+(3.48-.79)*j/144;rx,front,back,muzzle=interp(profile,z);ring=[]
@@ -107,8 +114,22 @@ for side in [-1,1]:
  ears.append(closed_rings('Ear_'+str(side)+'_loft',er,white))
 tail=organic('Short_round_tail',(0,.91,1.35),(.32,.40,.33),white)
 body=weld([body,*ears,tail],'Kanshan_White_Continuous_Surface',.018)
-nose=organic('Kanshan_Nose',(0,-1.30,2.91),(.425,.37,.39),nosemat,2.15)
-savecage(nose);m=nose.modifiers.new('Nose surface refinement','SUBSURF');m.levels=1
+# Split faces at the color boundary while keeping the muzzle one connected surface.
+body.data.materials.append(nosemat)
+cut_origin = Vector((0, -1.19, 2.94))
+cut_normal = Vector((0, 1, -.10)).normalized()
+surface = bmesh.new()
+surface.from_mesh(body.data)
+bmesh.ops.bisect_plane(
+ surface, geom=[*surface.verts, *surface.edges, *surface.faces], dist=1e-6,
+ plane_co=cut_origin, plane_no=cut_normal,
+)
+for face in surface.faces:
+ if (face.calc_center_median() - cut_origin).dot(cut_normal) < 0:
+  face.material_index = 1
+surface.to_mesh(body.data)
+surface.free()
+body.data.update()
 eyes=[]
 for side in [-1,1]:
  eye=organic('Eye_'+('L' if side<0 else 'R'),(side*.645,-.57,2.96),(.052,.042,.083),eyemat,2,32,20)
@@ -164,9 +185,12 @@ def bind(o,weights):
  mod=o.modifiers.new('Kanshan skeletal deformation','ARMATURE');mod.object=rig;o.parent=rig
 weights={'body':[],'head':[]}
 for v in body.data.vertices:
- t=max(0,min(1,(v.co.z-2.15)/.65));weights['head'].append((v.index,t));weights['body'].append((v.index,1-t))
+ t=max(0,min(1,(v.co.z-2.15)/.65))
+ if v.co.z > 2.30:
+  t=max(t,min(1,(-v.co.y-.80)/.28))
+ weights['head'].append((v.index,t));weights['body'].append((v.index,1-t))
 bind(body,weights)
-for o in [nose,*eyes]:bind(o,{'head':[(v.index,1) for v in o.data.vertices]})
+for o in eyes:bind(o,{'head':[(v.index,1) for v in o.data.vertices]})
 for i,o in enumerate(arms):
  label='L' if i==0 else 'R';w={k+'.'+label:[] for k in ['upper_arm','forearm','hand']}
  for v in o.data.vertices:
@@ -177,7 +201,7 @@ for i,o in enumerate(legs):bind(o,{'leg.'+('L' if i==0 else 'R'):[(v.index,1) fo
 
 # Pack the supplied reference as source data inside the editable file.
 refpath=ROOT/'references/three-view.jpg'
-image=bpy.data.images.load(str(refpath));image.pack()
+image=bpy.data.images.load(str(refpath));image.pack();image.filepath='//references/three-view.jpg'
 rig['reference']='User supplied kanshan_material.zip / original front-side-back JPG'
 rig['modeling_method']='Reference-proportioned cross-section lofts; welded ears/tail; spline arms with fused fingers; deform armature'
 rig['status']='Reference reconstruction; not the original official production mesh'
@@ -196,7 +220,9 @@ scene.render.engine='CYCLES';scene.cycles.samples=24;scene.cycles.use_denoising=
 scene.view_settings.view_transform='AgX';scene.render.image_settings.file_format='PNG';scene.render.film_transparent=False
 scene.camera=cameras[3]
 # Save editable, packed project before render/export.
-active(rig);bpy.ops.wm.save_as_mainfile(filepath=str(OUT/'kanshan-reference-model.blend'))
+scene.render.filepath='//renders/'
+bpy.context.preferences.filepaths.save_version=0
+active(rig);bpy.ops.wm.save_as_mainfile(filepath=str(OUT/'kanshan-source.blend'),compress=True)
 print('BLEND_SAVED',flush=True)
 # Export only the actual model, excluding studio and control cages.
 bpy.ops.object.select_all(action='DESELECT')
@@ -205,7 +231,6 @@ bpy.context.view_layer.objects.active=rig
 bpy.ops.export_scene.gltf(filepath=str(OUT/'kanshan-reference-model.glb'),export_format='GLB',use_selection=True,export_apply=False,export_animations=False)
 print('GLB_EXPORTED',flush=True)
 stats={}
-import bmesh
 for o in model.objects:
  if o.type=='MESH':
   bm=bmesh.new();bm.from_mesh(o.data);stats[o.name]={'vertices':len(o.data.vertices),'faces':len(o.data.polygons),'boundary_edges':sum(e.is_boundary for e in bm.edges),'nonmanifold_edges':sum(not e.is_manifold for e in bm.edges)};bm.free()
