@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { nextTick, onMounted, ref } from "vue";
 import { api, ApiError } from "./api";
 import UserProfile from "./components/UserProfile.vue";
 import ThoughtBranches from "./components/ThoughtBranches.vue";
@@ -12,6 +12,8 @@ import type {
   Favlist,
   Followee,
   Profile,
+  QaMessage,
+  QaSession,
 } from "./types";
 
 type TabKey = "favorites" | "creations" | "followees" | "likes" | "comments" | "bubbles";
@@ -40,6 +42,14 @@ const creations = ref<ContentItem[]>([]);
 const followees = ref<Followee[]>([]);
 const articles = ref<ArticleGroup[]>([]);
 const bubbles = ref<Bubble[]>([]);
+const qaSession = ref<QaSession | null>(null);
+const qaMessages = ref<QaMessage[]>([]);
+const qaQuestion = ref("");
+const qaLoading = ref(false);
+const qaAsking = ref(false);
+const qaError = ref("");
+const qaList = ref<HTMLElement>();
+let qaRequestId = 0;
 const selectedArticle = ref<ArticleGroup | null>(null);
 const pairCode = ref("");
 const pairLoading = ref(false);
@@ -127,6 +137,13 @@ async function logout() {
   profile.value = null;
   view.value = "home";
   pairCode.value = "";
+  qaRequestId += 1;
+  qaSession.value = null;
+  qaMessages.value = [];
+  qaQuestion.value = "";
+  qaError.value = "";
+  qaLoading.value = false;
+  qaAsking.value = false;
 }
 
 function selectTab(tab: TabKey) {
@@ -139,6 +156,7 @@ async function selectFavlist(list: Favlist) {
   selectedFavlist.value = list;
   favoriteItems.value = [];
   error.value = "";
+  void openQa(list);
   try {
     const data = await api<{ Items: ContentItem[] }>(
       `/zhihu/favorites/contents?favlist_url_token=${list.UrlToken}`,
@@ -146,6 +164,71 @@ async function selectFavlist(list: Favlist) {
     favoriteItems.value = data.Items || [];
   } catch (reason) {
     showError(reason);
+  }
+}
+
+async function openQa(list: Favlist) {
+  const requestId = ++qaRequestId;
+  qaLoading.value = true;
+  qaError.value = "";
+  qaSession.value = null;
+  qaMessages.value = [];
+  qaQuestion.value = "";
+  try {
+    const session = await api<QaSession>("/qa/sessions", {
+      method: "POST",
+      body: JSON.stringify({
+        favlist_url_token: list.UrlToken,
+        favlist_title: list.Title,
+      }),
+    });
+    if (requestId !== qaRequestId) return;
+    qaSession.value = session;
+    const detail = await api<QaSession>(`/qa/sessions/${session.id}`);
+    if (requestId !== qaRequestId) return;
+    qaSession.value = detail;
+    qaMessages.value = detail.messages || [];
+    await nextTick();
+    if (qaList.value) qaList.value.scrollTop = qaList.value.scrollHeight;
+  } catch (reason) {
+    if (requestId === qaRequestId) {
+      qaError.value =
+        reason instanceof ApiError ? reason.message : "问答会话加载失败，请稍后重试。";
+    }
+  } finally {
+    if (requestId === qaRequestId) qaLoading.value = false;
+  }
+}
+
+function retryQa() {
+  if (selectedFavlist.value) void openQa(selectedFavlist.value);
+}
+
+async function askQa() {  const question = qaQuestion.value.trim();
+  const session = qaSession.value;
+  if (!question || !session || qaAsking.value) return;
+  qaAsking.value = true;
+  qaError.value = "";
+  try {
+    const result = await api<{
+      session: QaSession;
+      question: QaMessage;
+      answer: QaMessage;
+    }>(`/qa/sessions/${session.id}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    });
+    if (qaSession.value?.id !== session.id) return;
+    qaMessages.value.push(result.question, result.answer);
+    qaSession.value = result.session;
+    qaQuestion.value = "";
+    await nextTick();
+    if (qaList.value) qaList.value.scrollTop = qaList.value.scrollHeight;
+  } catch (reason) {
+    qaError.value =
+      reason instanceof ApiError ? reason.message : "提问失败，请稍后重试。";
+  } finally {
+    qaAsking.value = false;
   }
 }
 
@@ -317,7 +400,64 @@ onMounted(async () => {
         </div>
       </section>
 
-      <section v-else-if="activeTab === 'creations'" class="panel">
+      <section v-if="activeTab === 'favorites' && selectedFavlist" class="panel qa-panel">
+        <div class="panel-heading">
+          <h2>问「{{ selectedFavlist.Title }}」</h2>
+          <span>只基于收藏摘要</span>
+        </div>
+        <p v-if="qaLoading" class="empty">正在打开问答…</p>
+        <div v-else-if="!qaSession" class="empty">
+          <p>{{ qaError || "问答会话暂时不可用。" }}</p>
+          <button class="button secondary" @click="retryQa">重试</button>
+        </div>
+        <template v-else>
+          <div ref="qaList" class="qa-messages">
+            <p v-if="qaMessages.length === 0" class="empty">
+              还没有提问。可以问这个收藏夹里讲了什么、有哪些不同观点，或让它指出资料不足的地方。
+            </p>
+            <article
+              v-for="message in qaMessages"
+              :key="message.id"
+              :class="['qa-message', message.role]"
+            >
+              <div class="qa-role">
+                {{ message.role === "user" ? "你" : "ThinkSpace" }} · {{ formatDate(message.created_at) }}
+              </div>
+              <p class="qa-body">{{ message.body }}</p>
+              <div v-if="message.citations.length" class="qa-citations">
+                <a
+                  v-for="citation in message.citations"
+                  :key="citation.source_url"
+                  class="qa-citation"
+                  :href="citation.source_url"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <strong>{{ citation.title || "未命名来源" }}</strong>
+                  <small>{{ citation.author_name || "未标注作者" }} · 收藏摘要</small>
+                  <span>{{ citation.snippet }}</span>
+                </a>
+              </div>
+            </article>
+          </div>
+          <p v-if="qaError" class="qa-error" role="alert">{{ qaError }}</p>
+          <form class="qa-compose" @submit.prevent="askQa">
+            <textarea
+              v-model="qaQuestion"
+              maxlength="2000"
+              rows="2"
+              placeholder="在这个收藏夹里问一个问题……"
+              :disabled="qaAsking"
+            ></textarea>
+            <button class="button primary" type="submit" :disabled="qaAsking || !qaQuestion.trim()">
+              {{ qaAsking ? "回答中…" : "提问" }}
+            </button>
+          </form>
+          <p class="qa-note">回答只基于收藏摘要，不是全文；引用可以打开原文核对。当前不调用生成模型。</p>
+        </template>
+      </section>
+
+      <section v-if="activeTab === 'creations'" class="panel">
         <div class="panel-heading"><h2>公开创作</h2><span>回答、文章、想法等</span></div>
         <div class="card-list">
           <article v-for="item in creations" :key="item.Url" class="content-card">
@@ -348,7 +488,7 @@ onMounted(async () => {
         <a href="https://developer.zhihu.com/docs" target="_blank" rel="noreferrer">查看知乎开放平台文档</a>
       </section>
 
-      <section v-else class="content-grid bubble-layout">
+      <section v-else-if="activeTab === 'bubbles'" class="content-grid bubble-layout">
         <div class="panel">
           <div class="panel-heading"><h2>有泡泡的文章</h2><span>{{ articles.length }} 篇</span></div>
           <button v-for="article in articles" :key="article.article_key" class="article-row" :class="{ selected: selectedArticle?.article_key === article.article_key }" @click="selectArticle(article)">
