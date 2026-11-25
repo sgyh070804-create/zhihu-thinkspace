@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import secrets
 import sqlite3
 import time
@@ -107,6 +108,30 @@ class Store:
                 );
                 CREATE INDEX IF NOT EXISTS idx_bubbles_user_article
                     ON bubbles(user_id, article_key, created_at DESC);
+                CREATE TABLE IF NOT EXISTS thoughts (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    request_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    source_url TEXT NOT NULL,
+                    source_title TEXT NOT NULL,
+                    quote TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    parent_ids TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(user_id, request_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_thoughts_user ON thoughts(user_id, created_at DESC);
+                CREATE VIEW IF NOT EXISTS thought_library AS
+                    SELECT id, user_id, title, body, '' AS article_key, source_url, source_title,
+                        quote, kind, parent_ids, created_at
+                    FROM thoughts
+                    UNION ALL
+                    SELECT b.id, b.user_id, substr(trim(b.body), 1, 60), b.body, b.article_key,
+                        a.source_url, a.title, b.quote, 'reading', '[]', b.created_at
+                    FROM bubbles b JOIN articles a
+                        ON a.user_id = b.user_id AND a.article_key = b.article_key;
                 """
             )
 
@@ -386,6 +411,78 @@ class Store:
         with self._connect() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [self._bubble(row) for row in rows]
+
+    @staticmethod
+    def _thought(row: sqlite3.Row) -> dict:
+        result = dict(row)
+        result.pop("user_id")
+        result["parent_ids"] = json.loads(result["parent_ids"])
+        return result
+
+    def list_thoughts(self, user_id: str) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM thought_library WHERE user_id = ? ORDER BY created_at DESC, id DESC",
+                (user_id,),
+            ).fetchall()
+        return [self._thought(row) for row in rows]
+
+    def get_thought(self, user_id: str, thought_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM thought_library WHERE user_id = ? AND id = ?", (user_id, thought_id)
+            ).fetchone()
+        return self._thought(row) if row else None
+
+    def create_thought(
+        self,
+        user_id: str,
+        request_id: str,
+        title: str,
+        body: str,
+        source_url: str,
+        kind: str,
+        parent_ids: list[str],
+    ) -> dict | None:
+        with self._connect() as conn:
+            # Keep parent ownership checks and the new record in one write transaction.
+            conn.execute("BEGIN IMMEDIATE")
+            existing = conn.execute(
+                "SELECT id FROM thoughts WHERE user_id = ? AND request_id = ?", (user_id, request_id)
+            ).fetchone()
+            if existing:
+                row = conn.execute(
+                    "SELECT * FROM thought_library WHERE user_id = ? AND id = ?", (user_id, existing["id"])
+                ).fetchone()
+                return self._thought(row)
+
+            parents = []
+            for parent_id in parent_ids:
+                parent = conn.execute(
+                    "SELECT * FROM thought_library WHERE user_id = ? AND id = ?", (user_id, parent_id)
+                ).fetchone()
+                if parent is None:
+                    return None
+                parents.append(parent)
+            source = next((parent for parent in parents if parent["source_url"]), None)
+            thought_id = uuid.uuid4().hex
+            conn.execute(
+                """INSERT INTO thoughts(
+                    id, user_id, request_id, title, body, source_url, source_title, quote,
+                    kind, parent_ids, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    thought_id, user_id, request_id, title, body,
+                    source["source_url"] if source else source_url,
+                    source["source_title"] if source else "",
+                    source["quote"] if source else "",
+                    kind, json.dumps(parent_ids), int(time.time()),
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM thought_library WHERE user_id = ? AND id = ?", (user_id, thought_id)
+            ).fetchone()
+            return self._thought(row)
 
     def list_articles(self, user_id: str) -> list[dict]:
         with self._connect() as conn:

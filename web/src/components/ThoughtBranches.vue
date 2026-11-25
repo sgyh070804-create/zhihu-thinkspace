@@ -3,11 +3,24 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import BranchIcon from "./BranchIcon.vue";
 import { addBranch, ancestry, createExploration, createSampleDraft, exportPath, initialConditions, layoutTree, parseDraft, STANCES, STORAGE_KEY } from "../branches";
 import type { BranchDraft, BranchNode } from "../branches";
+import type { ThoughtRecord } from "../types";
+import ThoughtResultForm from "./ThoughtResultForm.vue";
 
-const draft = ref<BranchDraft>(createSampleDraft());
+const props = defineProps<{ thought?: ThoughtRecord }>();
+const linkedExploration = props.thought ? createExploration(
+  (props.thought.body.length <= 180 ? props.thought.body : props.thought.title).trim() || "这条思绪",
+  [
+    { key: "subject", label: "适用对象", value: "沿用原问题的对象" },
+    { key: "period", label: "时间范围", value: "沿用原问题的时间范围" },
+    { key: "context", label: "外部条件", value: "沿用原问题的外部条件" },
+  ],
+) : undefined;
+const draft = ref<BranchDraft>(linkedExploration
+  ? { version: 1, activeId: linkedExploration.id, explorations: [linkedExploration] }
+  : createSampleDraft());
 const storageError = ref(""), notice = ref(""), storageBlocked = ref(false);
 try {
-  const saved = localStorage.getItem(STORAGE_KEY);
+  const saved = props.thought ? null : localStorage.getItem(STORAGE_KEY);
   if (saved) draft.value = parseDraft(saved);
 } catch {
   storageBlocked.value = true;
@@ -32,7 +45,7 @@ let drag: { id: number; x: number; y: number; startX: number; startY: number } |
 let resizeObserver: ResizeObserver | undefined, saveTimer: ReturnType<typeof setTimeout> | undefined;
 
 function persist() {
-  if (storageBlocked.value) return;
+  if (props.thought || storageBlocked.value) return;
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(draft.value)); storageError.value = ""; }
   catch { storageError.value = "本机空间不足或存储不可用，当前修改尚未保存。请先导出备份。"; }
 }
@@ -145,12 +158,12 @@ onBeforeUnmount(() => { clearTimeout(saveTimer); persist(); resizeObserver?.disc
       <div class="exploration-list">
         <button v-for="exploration in draft.explorations" :key="exploration.id" :class="{ active: exploration.id === draft.activeId }" @click="switchExploration(exploration.id)"><BranchIcon name="thought" /><span>{{ exploration.topic }}</span></button>
       </div>
-      <button class="new-exploration" @click="openEditor('root')"><BranchIcon name="plus" />新建探索</button>
+      <button v-if="!thought" class="new-exploration" @click="openEditor('root')"><BranchIcon name="plus" />新建探索</button>
     </aside>
 
     <main class="thought-main">
       <header class="thought-topbar"><div><a href="/space">思考空间</a></div><button class="thought-button quiet" @click="exportDraft"><BranchIcon name="download" />导出探索</button></header>
-      <section class="thought-intro"><h1>思想分叉</h1><span class="thought-local">本机草稿</span></section>
+      <section class="thought-intro"><h1>思想分叉</h1><span class="thought-local">{{ thought ? "本次探索" : "本机草稿" }}</span></section>
       <p v-if="storageError" class="thought-error" role="alert">{{ storageError }}</p>
       <section class="thought-tree" aria-labelledby="tree-heading">
         <div class="tree-toolbar"><div><BranchIcon name="branch" /><h2 id="tree-heading">思考路径</h2><span>{{ current.nodes.length }} 个情境</span></div><div><button class="thought-button quiet compare-toggle" :disabled="comparison.length !== 2" @click="compareDialog?.showModal()"><BranchIcon name="compare" />分支对照<span v-if="comparison.length">{{ comparison.length }}/2</span></button><span class="toolbar-divider"></span><button class="icon-button" aria-label="缩小画布" @click="zoomBy(-.1)"><BranchIcon name="minus" /></button><span class="zoom-label">{{ Math.round(zoom * 100) }}%</span><button class="icon-button" aria-label="放大画布" @click="zoomBy(.1)"><BranchIcon name="plus" /></button><button class="icon-button" aria-label="适应画布" @click="fit"><BranchIcon name="fit" /></button></div></div>
@@ -177,7 +190,7 @@ onBeforeUnmount(() => { clearTimeout(saveTimer); persist(); resizeObserver?.disc
         </div>
         <div class="question-judgment"><div class="judgment-heading"><label for="branch-judgment">此刻，你怎么想？</label><select aria-label="当前判断倾向" :value="selected.stance" @change="editStance"><option v-for="stance in STANCES" :key="stance">{{ stance }}</option></select></div><textarea id="branch-judgment" :value="selected.judgment" maxlength="4000" placeholder="记录你的判断、理由，或者暂时没有答案的地方…" @input="editJudgment"></textarea><div class="judgment-actions"><span class="draft-state">{{ selected.confirmed ? '这一步的判断已确认' : '允许保留疑问，也可以稍后再写' }}</span><button class="thought-button quiet" :disabled="!selected.judgment.trim()" @click="confirmJudgment"><BranchIcon name="check" />确认判断</button><button class="thought-button primary" @click="openEditor('branch')"><BranchIcon name="plus" />改变一个条件</button></div></div>
       </section>
-      <footer class="thought-footer"><span role="status">{{ notice || (storageError ? '当前修改仅保留在页面，请先导出备份。' : '草稿自动保存在本浏览器，刷新后可继续。') }}</span><button @click="exportCurrentPath">导出当前路径</button></footer>
+      <footer class="thought-footer"><span role="status">{{ notice || (thought ? '确认判断后可存入资料库。' : storageError ? '当前修改仅保留在页面，请先导出备份。' : '草稿自动保存在本浏览器，刷新后可继续。') }}</span><button @click="exportCurrentPath">导出当前路径</button></footer>
     </main>
 
     <dialog ref="editor" class="thought-dialog" aria-labelledby="branch-editor-title" @close="formError = ''">
@@ -189,6 +202,8 @@ onBeforeUnmount(() => { clearTimeout(saveTimer); persist(); resizeObserver?.disc
     </dialog>
     <dialog ref="compareDialog" class="thought-dialog comparison-dialog" aria-labelledby="branch-comparison-title"><div class="dialog-heading"><div><p class="thought-eyebrow">TWO PATHS, YOUR PERSPECTIVE</p><h2 id="branch-comparison-title">条件变了，判断呢？</h2></div><button class="icon-button" aria-label="关闭分支对照" @click="compareDialog?.close()"><BranchIcon name="close" /></button></div><div class="comparison-columns"><article v-for="node in comparisonNodes" :key="node.id"><span class="comparison-origin">{{ node.origin === 'sample' ? '示例情境' : '自建情境' }}</span><h3>{{ node.question }}</h3><dl><template v-for="condition in node.conditions" :key="condition.key"><dt>{{ condition.label }}</dt><dd :class="{ difference: comparisonNodes.some(other => other.conditions.find(c => c.key === condition.key)?.value !== condition.value) }">{{ condition.value }}</dd></template></dl><div class="comparison-judgment"><span>我的判断 · {{ node.confirmed ? '已确认' : '待确认' }}</span><strong>{{ node.stance }}</strong><p>{{ node.judgment || '还没有记录理由，可以回到这个情境继续思考。' }}</p></div><button class="thought-button quiet" @click="selectNode(node); compareDialog?.close()">回到这个情境</button></article></div><p class="dialog-note">不同条件可以有不同判断，不必让两条路径得出相同答案。</p></dialog>
   </div>
+  <ThoughtResultForm v-if="thought && selected.confirmed" :key="selected.id + ':' + selected.judgment"
+    class="shell" :parent-id="thought.id" kind="branch" :initial-body="selected.judgment" />
 </template>
 
 <style scoped src="../thought-branches.css"></style>

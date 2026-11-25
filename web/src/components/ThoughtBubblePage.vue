@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { api } from "../api";
+import { api, ApiError } from "../api";
 import { RequestScope } from "../request-scope";
-import { connectionDraft, filterNotes, fromSavedBubble, PAGE_SIZE, sampleNotes, sceneItems } from "../bubble-space";
+import { connectionDraft, filterNotes, fromThought, PAGE_SIZE, sampleNotes, sceneItems } from "../bubble-space";
 import type { SpaceNote } from "../bubble-space";
-import type { AuthStatus, Bubble } from "../types";
+import type { AuthStatus, ThoughtRecord } from "../types";
+import { saveThought, thoughtLink } from "../thought-library";
 import { bubbleEngine } from "../bubble-engine";
 import type { BubbleScene, Thought } from "../bubble-engine";
 import SpaceIcon from "./SpaceIcon.vue";
 import "../thought-bubbles.css";
 
+const props = defineProps<{ thought?: ThoughtRecord }>();
 const host = ref<HTMLElement>(), reader = ref<HTMLElement>(), dialog = ref<HTMLElement>(), input = ref<HTMLTextAreaElement>();
 const notes = ref<SpaceNote[]>([]), sceneNotes = ref<SpaceNote[]>([]), folded = ref(new Set<string>());
 const reading = ref<SpaceNote | null>(null), loading = ref(true), error = ref(""), notice = ref("");
@@ -17,7 +19,9 @@ const mode = ref<"account" | "sample">("account"), status = ref<AuthStatus | nul
 const query = ref(""), draftsOnly = ref(false), page = ref(0), paused = ref(false), busy = ref(false);
 const compactScreen = matchMedia("(max-width: 760px)"), pageSize = ref(compactScreen.matches ? 4 : PAGE_SIZE);
 const composer = ref<{ a: SpaceNote; b: SpaceNote } | null>(null), body = ref("");
-const requestedNote = new URLSearchParams(window.location.search).get("note");
+const requestedNote = props.thought?.id || new URLSearchParams(window.location.search).get("note");
+const saveRequest = new RequestScope(), saving = ref(false), saveError = ref("");
+let saveId = "";
 const picked = ref<string[]>([]), picking = ref(false), renderer = ref(""), rafRate = ref(0);
 const lastMerge = ref<{ child: string; parents: string[] } | null>(null);
 const filtered = computed(() => filterNotes(notes.value, query.value, draftsOnly.value, folded.value));
@@ -56,9 +60,9 @@ async function loadAccount() {
       return;
     }
     mode.value = "account";
-    const data = await api<{ items: Bubble[] }>("/bubbles", { signal: current.signal });
+    const data = await api<{ items: ThoughtRecord[] }>("/thoughts", { signal: current.signal });
     if (!current.isCurrent()) return;
-    resetSpace(data.items.map(fromSavedBubble));
+    resetSpace(data.items.map(fromThought));
     if (requestedNote) {
       const index = notes.value.findIndex(note => note.id === requestedNote);
       if (index < 0) tell("这条想法已不存在，或不属于当前账号。");
@@ -108,36 +112,64 @@ async function requestDraft(a: Thought, b: Thought): Promise<Thought> {
   previousFocus = document.activeElement as HTMLElement;
   composer.value = { a: resolveNote(a), b: resolveNote(b) };
   body.value = "";
+  saveId = ""; saveError.value = "";
   const promise = new Promise<Thought>((resolve, reject) => { resolveDraft = resolve; rejectDraft = reject; });
   await nextTick(); input.value?.focus();
   return promise;
 }
-function confirmDraft() {
-  if (!composer.value || !body.value.trim()) return;
-  pendingDraft = connectionDraft(composer.value.a, composer.value.b, body.value);
+async function confirmDraft() {
+  if (!composer.value || !body.value.trim() || saving.value) return;
+  const { a, b } = composer.value;
+  if (mode.value === "account") {
+    const request = saveRequest.begin();
+    saveId ||= crypto.randomUUID();
+    saving.value = true;
+    saveError.value = "";
+    try {
+      const thought = await saveThought({ body: body.value, kind: "fusion", parent_ids: [a.id, b.id] }, saveId, request.signal);
+      if (!request.isCurrent()) return;
+      pendingDraft = fromThought(thought);
+    } catch (reason) {
+      if (request.isCurrent()) saveError.value = reason instanceof ApiError ? reason.message : "保存失败，请重试。";
+      return;
+    } finally {
+      if (request.isCurrent()) saving.value = false;
+    }
+  } else {
+    pendingDraft = connectionDraft(a, b, body.value);
+  }
   composer.value = null;
   resolveDraft?.(pendingDraft); resolveDraft = undefined; rejectDraft = undefined;
   nextTick(() => host.value?.focus({ preventScroll: true }));
 }
 function cancelDraft() {
+  if (saving.value) return;
   composer.value = null; busy.value = false;
   rejectDraft?.(new Error("连接已取消")); resolveDraft = undefined; rejectDraft = undefined;
   nextTick(() => previousFocus?.isConnected && previousFocus.focus({ preventScroll: true }));
 }
 function onSceneChange(items: Thought[]) {
+  let savedConnection = false;
   if (pendingDraft) {
     const draft = pendingDraft; pendingDraft = undefined;
-    notes.value.push(draft);
-    folded.value = new Set([...folded.value, ...(draft.parents || [])]);
-    lastMerge.value = { child: draft.id, parents: draft.parents || [] };
-    tell("新的连接已形成。原想法保留，草稿可导出或撤销。");
+    if (draft.generated) {
+      notes.value.push(draft);
+      folded.value = new Set([...folded.value, ...(draft.parents || [])]);
+      lastMerge.value = { child: draft.id, parents: draft.parents || [] };
+      tell("新的连接已形成。原想法保留，草稿可导出或撤销。");
+    } else {
+      notes.value = [draft, ...notes.value.filter(note => note.id !== draft.id)];
+      savedConnection = true;
+      tell("新的思绪已保存到资料库。");
+    }
   }
   sceneNotes.value = items.map(resolveNote);
   picked.value = []; picking.value = false; busy.value = false;
   previousFocus = null;
   // A new connection can stop matching an active search, or reduce the final page.
   // Wait for the engine's merge callback to finish before replacing its data.
-  if (query.value || draftsOnly.value || sceneNotes.value.length > pageSize.value || page.value >= pageCount.value) {
+  if (savedConnection || query.value || draftsOnly.value || sceneNotes.value.length > pageSize.value || page.value >= pageCount.value) {
+    if (savedConnection) page.value = 0;
     page.value = Math.min(page.value, pageCount.value - 1);
     nextTick(() => { if (!disposed) syncScene(); });
   }
@@ -196,7 +228,7 @@ onMounted(() => {
   void loadAccount();
 });
 onBeforeUnmount(() => {
-  disposed = true; request.invalidate(); clearInterval(statsTimer); clearTimeout(toastTimer);
+  disposed = true; request.invalidate(); saveRequest.invalidate(); clearInterval(statsTimer); clearTimeout(toastTimer);
   document.removeEventListener("keydown", keydown);
   compactScreen.removeEventListener("change", resizePage);
   rejectDraft?.(new Error("页面已离开")); scene?.destroy();
@@ -238,6 +270,7 @@ onBeforeUnmount(() => {
                   <blockquote v-if="reading.quote">{{ reading.quote }}</blockquote>
                   <footer>
                     <span>{{ reading.source }}</span>
+                    <a v-if="mode === 'account' && !reading.generated" :href="thoughtLink('/library', reading.id)">在资料库查看</a>
                     <a v-if="reading.articleKey" :href="`/library?source=${encodeURIComponent(reading.articleKey)}`">查看关联记录</a>
                     <a v-if="reading.url" :href="reading.url" target="_blank" rel="noopener noreferrer">阅读原文</a>
                   </footer>
@@ -269,12 +302,13 @@ onBeforeUnmount(() => {
     <Transition name="ts-composer">
       <div v-if="composer" class="ts-composer-backdrop" @click.self="cancelDraft">
         <form ref="dialog" class="ts-composer-dialog" role="dialog" aria-modal="true" aria-labelledby="ts-compose-title" @submit.prevent="confirmDraft" @keydown="trapFocus">
-          <header><span class="ts-composer-symbol"><SpaceIcon name="link"/></span><button type="button" class="ts-icon-button" aria-label="取消连接" @click="cancelDraft"><SpaceIcon name="close"/></button></header>
+          <header><span class="ts-composer-symbol"><SpaceIcon name="link"/></span><button type="button" class="ts-icon-button" aria-label="取消连接" :disabled="saving" @click="cancelDraft"><SpaceIcon name="close"/></button></header>
           <h2 id="ts-compose-title">连接两个想法</h2>
           <div class="ts-parents"><blockquote>{{ composer.a.text }}</blockquote><span>与</span><blockquote>{{ composer.b.text }}</blockquote></div>
-          <label for="ts-connection-body">我的新观点</label><textarea id="ts-connection-body" ref="input" v-model="body" required maxlength="4000" placeholder="也许，这两件事之间的联系是…" rows="4"></textarea>
+          <label for="ts-connection-body">我的新观点</label><textarea id="ts-connection-body" ref="input" v-model="body" required maxlength="4000" placeholder="也许，这两件事之间的联系是…" rows="4" :disabled="saving" @input="saveId = ''"></textarea>
           <div class="ts-compose-note"><span>{{ body.length }} / 4000</span></div>
-          <footer><button type="button" class="ts-secondary" @click="cancelDraft">再想一想</button><button type="submit" class="ts-primary" :disabled="!body.trim()">形成新的泡泡</button></footer>
+          <p v-if="saveError" role="alert">{{ saveError }}</p>
+          <footer><button type="button" class="ts-secondary" :disabled="saving" @click="cancelDraft">再想一想</button><button type="submit" class="ts-primary" :disabled="saving || !body.trim()">{{ saving ? "保存中…" : mode === "account" ? "形成并保存" : "形成新的泡泡" }}</button></footer>
         </form>
       </div>
     </Transition>
