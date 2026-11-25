@@ -16,6 +16,57 @@ export const initialConditions: Condition[] = [
   { key: "control", label: "人工否决", value: "保留人工否决权" },
 ];
 
+type ConditionAxis = { key: string; label: string; baseline: string; alternative: string };
+export type BranchSuggestion = { key: string; label: string; value: string; question: string };
+
+const generalAxes: ConditionAxis[] = [
+  { key: "subject", label: "适用对象", baseline: "仅考虑直接参与者", alternative: "也考虑间接受影响的人" },
+  { key: "period", label: "时间范围", baseline: "只考察短期结果", alternative: "把长期影响纳入判断" },
+  { key: "evidence", label: "证据条件", baseline: "已有可核对的依据", alternative: "目前只有初步迹象" },
+];
+const profiles: { match: RegExp; axes: ConditionAxis[] }[] = [
+  { match: /\bai\b|人工智能|自动化|算法|代为决定/i, axes: initialConditions.map((condition, index) => ({
+    key: condition.key, label: condition.label, baseline: condition.value,
+    alternative: ["也会影响他人", "决定无法撤回", "无法人工否决"][index],
+  })) },
+  { match: /阅读|读书|学习|记忆|理解|笔记/, axes: [
+    { key: "goal", label: "阅读目标", baseline: "需要理解论证", alternative: "只需快速查找已知信息" },
+    { key: "time", label: "可用时间", baseline: "时间充足，可以回读", alternative: "阅读时间有限" },
+    { key: "familiarity", label: "主题熟悉度", baseline: "第一次接触主题", alternative: "已经熟悉相关背景" },
+  ] },
+  { match: /就业|求职|读研|择业|工作选择|奖学金/, axes: [
+    { key: "funding", label: "资金条件", baseline: "基本开支有保障", alternative: "需要自己承担主要开支" },
+    { key: "opportunity", label: "备选机会", baseline: "已有明确备选机会", alternative: "备选机会仍不确定" },
+    { key: "interest", label: "兴趣稳定性", baseline: "对目标方向有长期兴趣", alternative: "兴趣还没有经过实践验证" },
+  ] },
+  { match: /购买|付费|价格|定价|消费|订阅/, axes: [
+    { key: "budget", label: "预算约束", baseline: "预算足以覆盖支出", alternative: "支出会挤占其他预算" },
+    { key: "frequency", label: "使用频率", baseline: "预计会经常使用", alternative: "预计只会偶尔使用" },
+    { key: "exit", label: "退出成本", baseline: "可以低成本停止使用", alternative: "停止使用会产生额外成本" },
+  ] },
+];
+
+export function suggestConditions(question: string, context = ""): Condition[] {
+  const match = profiles.find(profile => profile.match.test(question))
+    ?? profiles.find(profile => profile.match.test(context));
+  return (match?.axes ?? generalAxes).map(axis => ({ key: axis.key, label: axis.label, value: axis.baseline }));
+}
+
+export function suggestBranchChanges(node: BranchNode): BranchSuggestion[] {
+  const knownAxes = [...profiles.flatMap(profile => profile.axes), ...generalAxes];
+  return node.conditions.map(condition => {
+    const axis = knownAxes.find(item => item.key === condition.key && item.label === condition.label);
+    const reverse = /^不满足「(.+)」$/s.exec(condition.value)?.[1];
+    const value = axis && [axis.baseline, axis.alternative].includes(condition.value)
+      ? (condition.value === axis.baseline ? axis.alternative : axis.baseline)
+      : reverse || `不满足「${condition.value.slice(0, 108)}」`;
+    const change = `如果「${condition.label}」变为「${value}」呢？`;
+    const topic = node.question.replace(/[？?。！!]+$/, "");
+    const question = `${topic.slice(0, 179 - change.length)}。${change}`;
+    return { key: condition.key, label: condition.label, value, question };
+  });
+}
+
 export function createExploration(topic: string, conditions = initialConditions): Exploration {
   if (!topic.trim() || topic.trim().length > 180) throw new Error("请填写 1–180 字的问题。");
   if (conditions.length !== 3 || new Set(conditions.map(c => c.key)).size !== 3 || new Set(conditions.map(c => c.label.trim())).size !== 3 || conditions.some(c => !c.label.trim() || c.label.length > 24 || !c.value.trim() || c.value.length > 120)) throw new Error("请填写三个不同的起始条件，名称最多 24 字，内容最多 120 字。");
