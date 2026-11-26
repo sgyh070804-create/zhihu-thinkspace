@@ -5,7 +5,25 @@ import ts from "typescript";
 
 const source = readFileSync(new URL("../src/branches.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { createExploration, createSampleDraft, addBranch, ancestry, layoutTree, parseDraft, exportPath, MAX_NODES } = await import("data:text/javascript;base64," + Buffer.from(compiled).toString("base64"));
+const { createExploration, createSampleDraft, addBranch, ancestry, layoutTree, parseDraft, exportPath, MAX_NODES, suggestConditions, suggestBranchChanges } = await import("data:text/javascript;base64," + Buffer.from(compiled).toString("base64"));
+
+test("condition suggestions use the question first and fall back to linked context", () => {
+  assert.equal(suggestConditions("读研还是就业？", "阅读策略")[0].label, "资金条件");
+  assert.equal(suggestConditions("如何取舍？", "阅读策略")[0].label, "阅读目标");
+  assert.equal(suggestConditions("如何取舍？")[0].label, "适用对象");
+});
+
+test("a branch suggestion fills one editable condition without modifying the parent", () => {
+  const topic = "围绕阅读".repeat(45);
+  const exploration = createExploration(topic, suggestConditions(topic));
+  const root = exploration.nodes[0], original = structuredClone(root);
+  const suggestion = suggestBranchChanges(root)[1];
+  assert.equal(suggestion.value, "阅读时间有限");
+  assert.ok(suggestion.question.length <= 180);
+  assert.deepEqual(root, original);
+  const child = addBranch(exploration, root.id, suggestion.key, suggestion.value, suggestion.question);
+  assert.equal(child.conditions.filter((condition, i) => condition.value !== root.conditions[i].value).length, 1);
+});
 
 test("a branch changes exactly one condition and never mutates its parent", () => {
   const exploration = createExploration("是否交给 AI 决定？"), root = exploration.nodes[0];

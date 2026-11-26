@@ -1078,6 +1078,10 @@
   padding-top:14px;
 }
 
+.branch-suggestions { margin-top:12px; }
+.branch-suggestion-options { display:grid; gap:6px; margin-top:8px; }
+.branch-suggestion-options .thought-button { justify-content:flex-start; text-align:left; }
+
 .root-conditions-editor summary {
   cursor:pointer;
   color:#5a7897;

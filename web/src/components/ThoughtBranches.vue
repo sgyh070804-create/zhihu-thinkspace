@@ -1,19 +1,15 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import BranchIcon from "./BranchIcon.vue";
-import { addBranch, ancestry, createExploration, createSampleDraft, exportPath, initialConditions, layoutTree, parseDraft, STANCES, STORAGE_KEY } from "../branches";
-import type { BranchDraft, BranchNode } from "../branches";
+import { addBranch, ancestry, createExploration, createSampleDraft, exportPath, initialConditions, layoutTree, parseDraft, STANCES, STORAGE_KEY, suggestBranchChanges, suggestConditions } from "../branches";
+import type { BranchDraft, BranchNode, BranchSuggestion } from "../branches";
 import type { ThoughtRecord } from "../types";
 import ThoughtResultForm from "./ThoughtResultForm.vue";
 
 const props = defineProps<{ thought?: ThoughtRecord }>();
 const linkedExploration = props.thought ? createExploration(
   (props.thought.body.length <= 180 ? props.thought.body : props.thought.title).trim() || "这条思绪",
-  [
-    { key: "subject", label: "适用对象", value: "沿用原问题的对象" },
-    { key: "period", label: "时间范围", value: "沿用原问题的时间范围" },
-    { key: "context", label: "外部条件", value: "沿用原问题的外部条件" },
-  ],
+  suggestConditions(props.thought.body, props.thought.quote),
 ) : undefined;
 const draft = ref<BranchDraft>(linkedExploration
   ? { version: 1, activeId: linkedExploration.id, explorations: [linkedExploration] }
@@ -114,11 +110,29 @@ function toggleComparison() {
 const editor = ref<HTMLDialogElement | null>(null), compareDialog = ref<HTMLDialogElement | null>(null);
 const mode = ref<"branch" | "root">("branch"), conditionKey = ref(""), afterValue = ref(""), question = ref(""), formError = ref("");
 const rootConditions = ref(initialConditions.map(c => ({ ...c })));
+const showRootConditions = ref(false), showBranchSuggestions = ref(false);
+const proposedChanges = computed(() => suggestBranchChanges(selected.value));
+let suggestedQuestion = "";
 const changingCondition = computed(() => selected.value.conditions.find(c => c.key === conditionKey.value));
 function openEditor(nextMode: "branch" | "root") {
   mode.value = nextMode; conditionKey.value = selected.value.conditions[0].key;
   afterValue.value = ""; question.value = ""; formError.value = ""; editor.value?.showModal();
   rootConditions.value = initialConditions.map(c => ({ ...c }));
+  showRootConditions.value = false;
+  showBranchSuggestions.value = false;
+  suggestedQuestion = "";
+}
+function useRootSuggestions() {
+  rootConditions.value = suggestConditions(question.value);
+  showRootConditions.value = true;
+}
+function useBranchSuggestion(suggestion: BranchSuggestion) {
+  conditionKey.value = suggestion.key;
+  afterValue.value = suggestion.value;
+  if (!question.value.trim() || question.value === suggestedQuestion) {
+    question.value = suggestion.question;
+    suggestedQuestion = suggestion.question;
+  }
 }
 function submitEditor() {
   try {
@@ -197,7 +211,19 @@ onBeforeUnmount(() => { clearTimeout(saveTimer); persist(); resizeObserver?.disc
       <form @submit.prevent="submitEditor"><div class="dialog-heading"><h2 id="branch-editor-title">{{ mode === 'root' ? '新建探索' : '创建分支' }}</h2><button type="button" class="icon-button" aria-label="关闭情境编辑" @click="editor?.close()"><BranchIcon name="close" /></button></div>
         <template v-if="mode === 'branch'"><p class="dialog-note">从「{{ selected.title }}」继续，其他条件保持一致。</p><label for="condition-choice">这次改变哪个条件？</label><select id="condition-choice" v-model="conditionKey" @change="afterValue = ''"><option v-for="condition in selected.conditions" :key="condition.key" :value="condition.key">{{ condition.label }}</option></select><p class="previous-condition">当前：{{ changingCondition?.value }}</p><label for="condition-value">新的条件</label><input id="condition-value" v-model="afterValue" required maxlength="120" placeholder="例如：决定无法撤回" /></template>
         <label for="branch-question">{{ mode === 'root' ? '你想探索什么问题？' : '在这个条件下，你想问什么？' }}</label><textarea id="branch-question" v-model="question" required maxlength="180" :placeholder="mode === 'root' ? '例如：AI 可以替我做决定吗？' : '把问题写具体一点，让这次分叉有明确的方向。'"></textarea>
-        <details v-if="mode === 'root'" class="root-conditions-editor"><summary>设定三个起始条件</summary><p class="dialog-note">默认是 AI 决策情境。探索其他问题时，请在这里填写适用的条件。</p><div v-for="(condition, i) in rootConditions" :key="condition.key"><label :for="'root-label-' + i">条件 {{ i + 1 }} 名称</label><input :id="'root-label-' + i" v-model="condition.label" required maxlength="24" /><label :for="'root-value-' + i">条件 {{ i + 1 }} 内容</label><input :id="'root-value-' + i" v-model="condition.value" required maxlength="120" /></div></details><p v-if="formError" class="thought-error" role="alert">{{ formError }}</p><div class="dialog-actions"><button type="button" class="thought-button quiet" @click="editor?.close()">取消</button><button type="submit" class="thought-button primary">{{ mode === 'root' ? '开始探索' : '创建分支' }}</button></div>
+        <section v-if="mode === 'branch'" class="branch-suggestions" aria-label="条件建议">
+          <button type="button" class="thought-button quiet" :aria-expanded="showBranchSuggestions" @click="showBranchSuggestions = !showBranchSuggestions">条件建议</button>
+          <div v-if="showBranchSuggestions" class="branch-suggestion-options">
+            <button v-for="suggestion in proposedChanges" :key="suggestion.key" type="button" class="thought-button quiet"
+              @click="useBranchSuggestion(suggestion)">{{ suggestion.label }} · {{ suggestion.value }}</button>
+          </div>
+        </section>
+        <details v-else class="root-conditions-editor" :open="showRootConditions" @toggle="showRootConditions = ($event.target as HTMLDetailsElement).open">
+          <summary>设定三个起始条件</summary>
+          <button type="button" class="thought-button quiet" :disabled="!question.trim()" @click="useRootSuggestions">按问题生成条件建议</button>
+          <div v-for="(condition, i) in rootConditions" :key="condition.key"><label :for="'root-label-' + i">条件 {{ i + 1 }} 名称</label><input :id="'root-label-' + i" v-model="condition.label" required maxlength="24" /><label :for="'root-value-' + i">条件 {{ i + 1 }} 内容</label><input :id="'root-value-' + i" v-model="condition.value" required maxlength="120" /></div>
+        </details>
+        <p v-if="formError" class="thought-error" role="alert">{{ formError }}</p><div class="dialog-actions"><button type="button" class="thought-button quiet" @click="editor?.close()">取消</button><button type="submit" class="thought-button primary">{{ mode === 'root' ? '开始探索' : '创建分支' }}</button></div>
       </form>
     </dialog>
     <dialog ref="compareDialog" class="thought-dialog comparison-dialog" aria-labelledby="branch-comparison-title"><div class="dialog-heading"><div><p class="thought-eyebrow">TWO PATHS, YOUR PERSPECTIVE</p><h2 id="branch-comparison-title">条件变了，判断呢？</h2></div><button class="icon-button" aria-label="关闭分支对照" @click="compareDialog?.close()"><BranchIcon name="close" /></button></div><div class="comparison-columns"><article v-for="node in comparisonNodes" :key="node.id"><span class="comparison-origin">{{ node.origin === 'sample' ? '示例情境' : '自建情境' }}</span><h3>{{ node.question }}</h3><dl><template v-for="condition in node.conditions" :key="condition.key"><dt>{{ condition.label }}</dt><dd :class="{ difference: comparisonNodes.some(other => other.conditions.find(c => c.key === condition.key)?.value !== condition.value) }">{{ condition.value }}</dd></template></dl><div class="comparison-judgment"><span>我的判断 · {{ node.confirmed ? '已确认' : '待确认' }}</span><strong>{{ node.stance }}</strong><p>{{ node.judgment || '还没有记录理由，可以回到这个情境继续思考。' }}</p></div><button class="thought-button quiet" @click="selectNode(node); compareDialog?.close()">回到这个情境</button></article></div><p class="dialog-note">不同条件可以有不同判断，不必让两条路径得出相同答案。</p></dialog>
