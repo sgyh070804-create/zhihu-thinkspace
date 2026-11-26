@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from . import auth, bubbles, discussion_engine_api, discussions, extension, qa_api, thoughts, zhihu_data
+from . import auth, bubbles, discussion_engine_api, discussions, extension, qa_api, thought_trees, thoughts, zhihu_data
 from .config import Settings
 from .discussion_engine import DiscussionEngine
 from .discussion_store import DiscussionStore
@@ -58,6 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(zhihu_data.router)
     app.include_router(bubbles.router)
     app.include_router(thoughts.router)
+    app.include_router(thought_trees.router)
     app.include_router(extension.router)
     app.include_router(discussions.router)
     app.include_router(discussion_engine_api.router)

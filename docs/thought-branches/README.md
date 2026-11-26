@@ -1,71 +1,48 @@
-# 思想分叉前端首版
+# 思想树
 
-日期：2026-11-19。基于主分支 `53c2dc7`，独立分支 `feat/thought-branches`。沿用 Vue 3 / TypeScript / Vite，无新增依赖，不修改服务端和现有公共接口。此前网站 review 的 PR #2 尚未合并，本分支不依赖其中的改动。
+从「思考空间」进入思想树，或在资料库、思维泡泡中用一条已有思绪开启。已有思绪的全文会成为根节点，同账号再次从该思绪进入时打开同一棵树。
 
-当前状态：**本地交互实现与浏览器检查完成，未接入真实 AI、账号同步、收藏引用或讨论室业务联调。** 初始五个情境是固定示例，没有自动生成回答。
+## 使用方式
 
-## 运行
+- 点选任意节点阅读、补充想法、手动添加子节点，或请求 AI 生成候选。画布支持拖动、缩放、折叠和自动布局。小屏也可通过路径和子节点按钮导航。
+- 一次请求返回零至三个候选。虚线代表候选，编辑后确认才成为正式节点。已确认节点使用实线。确认后的修改由服务端保存。
+- 删除前会确认。当前页面可撤销最近 20 次编辑。另存到资料库的思绪可独立在资料库和思维泡泡中打开，树上的删除不会删除该副本。
+- 「控制变量实验」保留旧界面。打开同一浏览器、同一站点下的 /thought-branches?mode=experiment 可读取和导出原 v1 草稿。损坏的原始数据也可导出，原存储不会被覆盖。旧草稿与账号思想树分别保存。
 
-从仓库根目录运行：
+## 接入知乎直答
 
-```powershell
-npm --prefix web ci
-npm --prefix web run dev
-```
+在后端设置 ZHIHU_ACCESS_SECRET。默认使用 zhida-fast-1p5，THINKSPACE_ZHIDA_MODEL 可切换为 zhida-thinking-1p5。服务端复用知乎 HTTP 客户端和 Access Secret 鉴权，提交 model、messages、stream=false，从 choices[0].message.content 解析候选。
 
-打开 `http://localhost:5173/thought-branches`，也可从主站顶部「思想分叉」进入。分叉页面可以独立使用，不需要 API 或 OAuth；原资料页面仍按原流程连接后端。
+主动点击生成时发送根节点、当前节点、最近 12 个祖先的摘要、当前节点的已有子节点和用户粘贴的参考资料。每棵树最多 96 个节点，正文 4000 字、补充 2000 字，单次参考资料最多 2000 字。提示词维护在 api/app/branch_prompt.py，模型正文中的 JSON 需经 Schema、长度和去重校验。
 
-```powershell
-npm --prefix web run test:branches
-npm --prefix web run build
-```
+| 环境变量 | 默认 | 用途 |
+| --- | --- | --- |
+| THINKSPACE_BRANCH_AI_DAILY_BUDGET | 30 | 同数据库的北京时间日总尝试上限 |
+| THINKSPACE_BRANCH_AI_USER_BUDGET | 10 | 每账号日尝试上限 |
+| THINKSPACE_BRANCH_AI_MIN_INTERVAL | 5 | 同账号两次未命中缓存的最小间隔秒数 |
+| THINKSPACE_BRANCH_AI_CONCURRENCY | 2 | 全局在途上限，同一账号至多一个 |
+| THINKSPACE_BRANCH_AI_QUOTA_RESERVE | 1 | 保留的免费额度，另预留其他在途请求的空间 |
+| THINKSPACE_BRANCH_AI_ALLOW_DEMO | false | 显式允许演示账号调用直答 |
 
-部署时需要将 `/thought-branches` 路径回退到网页 `index.html`，Vite 开发及预览服务器已支持。当前路径以域名根目录部署为前提。
+缓存按节点、模型、提示词和实际发送的上下文命中，持续 24 小时。未命中缓存才占用尝试预算，失败也计入预算。每次生成前查询 zhida_openai 的剩余免费额度，额度不可确认或触及保护线时停止。失败后可手动创建节点，系统无自动重试。多实例使用同一 SQLite 文件时共用预算。使用独立数据库或与其他系统共用 Access Secret 时，请留意外部额度消耗。
 
-## 页面和交互
+官方文档：[直答 HTTP API](https://developer.zhihu.com/docs?key=zhida) · [额度查询](https://developer.zhihu.com/docs?key=quota)。
 
-- 整页统一冷灰蓝。上方树画布，下方常驻「当前问题」框；选择节点立即更新问题、条件变化、继承条件及自己的判断。
-- 每个节点代表一种情境。同一分支每次只改变一个已有条件，其余条件复制父节点快照；原节点、同级分支及判断保持独立。
-- 「改变一个条件」由用户填写变化和新问题，确认后创建节点。示例、自建情境均有标记。
-- 判断文字自动作为本机草稿保存，用户点击「确认判断」才标记为已确认；之后再编辑会回到草稿状态。
-- 选择两个节点加入对照，比较三个条件和用户判断；不同条件用同一灰蓝强调，不标记正确或错误。
-- 支持折叠、展开、拖动画布、按钮缩放。画布获得焦点后，方向键平移，Home 适应画布。窄屏默认聚焦当前节点，可拖动查看其余路径。
-- 「新建探索」保留已有探索，并允许自定义三个起始条件。首版每个探索最多 64 个节点，本机最多 30 个探索。
-- 新建探索时可根据问题给出三条可编辑的起始条件。创建分支时可选用一个条件建议，填入备选值和空白的分支问题，仍需用户确认创建。建议在浏览器内按主题和条件规则生成。
-- 可导出全部探索 JSON，以及当前祖先路径 Markdown。JSON 导入暂未提供；导出的文件可用于备份与人工交接。
+## 数据与接口
 
-## 数据边界与接手位置
+新增 SQLite 表由后端初始化，老数据无需迁移。所有树按当前账号隔离，旧版本提交返回 409，用户可重新载入并继续。
 
-数据保存在当前浏览器的 `localStorage`，键名为 `thinkspace:thought-branches:v1`。同一浏览器与源下共享草稿，不按登录账号隔离，不上传服务器。切换端口、浏览器或设备不会自动带走记录，清理浏览器存储会影响草稿。
+| 接口 | 请求与结果 |
+| --- | --- |
+| GET /api/thought-trees | 当前账号的思想树列表 |
+| POST /api/thought-trees | request_id 加 content 或 source_id，返回树 |
+| GET /api/thought-trees/{id} | 返回树、节点、版本及已保存思绪链接 |
+| POST /api/thought-trees/{id} | version 和 nodes，返回更新后的树 |
+| POST /api/thought-trees/{id}/nodes/{node_id}/candidates | version、可选 references，返回 branches 和 cached |
+| POST /api/thought-trees/{id}/nodes/{node_id}/thought | version，返回存入资料库的思绪 |
 
-加载时校验版本、单根树、父链、唯一 ID 和单条件变化。发现不支持或损坏的旧草稿时，保留原存储并停止覆盖，当前页可继续探索和导出。配额不足或存储不可用时显示未保存提示，不宣称成功同步。
+## 验证
 
-| 文件 | 用途 |
-|---|---|
-| `web/src/branches.ts` | 节点与条件类型、单条件分叉、祖先路径、布局、草稿校验、Markdown 导出 |
-| `web/src/components/ThoughtBranches.vue` | 页面状态、草稿保存、画布、问题框及编辑/对照弹窗 |
-| `web/src/thought-branches.css` | 局部冷色样式、桌面与手机布局、减少动态效果偏好 |
-| `web/src/components/BranchIcon.vue` | 本页 SVG 图标 |
-| `web/tests/branches.test.mjs` | 节点继承、条件约束、存储校验、折叠及路径导出检查 |
-
-后端接入时可参考 `BranchDraft → Exploration → BranchNode` 的数据关系，但这不是已确认的公共 API。节点保留父 ID、完整条件快照和本次变化；用户判断和确认状态单独存储。来源文章、来源泡泡、讨论消息关联、权限隔离和 AI 情境生成仍需与对应负责人约定，不能将本机 UUID 当作服务端授权依据。
-
-## 实际验证
-
-- `npm --prefix web run test:branches`：6 项通过。
-- `npm --prefix web run build`：类型检查和生产构建通过。
-- 浏览器实际创建第二层分支，确认父条件继承、下方问题框同步；填写倾向与理由并确认，刷新后恢复节点、倾向及文字。
-- 两分支对照显示不同条件、已确认及待确认判断。
-- 新建「读研还是直接就业？」并自定义经济、兴趣、就业三个起始条件，原探索保留，刷新仍可读取。
-- 折叠隐藏后代并切换至父节点，展开恢复；缩放与键盘平移通过。
-- 下载 Markdown，读取文件确认包含当前路径和已确认的用户判断。
-- 390px 桌面浏览器模拟手机宽度，页面无横向溢出，树和问题框上下排列。未完成真机触控验收。
-- 当前分叉页读取的控制台 error/warn 为空。未重新验收无关的后端、扩展、泡泡与三维讨论室。
-
-以下为实际运行截图。额外节点、判断及第二个探索均为手动输入的测试内容，不是真实用户记录。
-
-![桌面：树下方显示当前问题](screenshots/desktop-question-panel.png)
-
-![两个情境的条件与判断对照](screenshots/comparison.png)
-
-![390px：树与问题框上下排列](screenshots/mobile-question-panel.png)
+- 后端 115 项和网页 27 项测试通过，生产构建通过。直答接口测试使用 httpx.MockTransport，覆盖请求协议、上下文隔离、缓存、预算、异常及账号恢复。
+- Edge 实际验收了从资料库和泡泡建立思想树、历史节点分叉、候选编辑和拒绝、删除撤销、刷新恢复、旧草稿以及 390px 窄屏操作。
+- 本轮未检测到已配置的知乎 Access Secret，真实直答生成调用为 0。开启小额联调时可先将日总量与单人预算限制为 1。

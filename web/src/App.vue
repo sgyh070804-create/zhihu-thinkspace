@@ -10,6 +10,7 @@ import LibraryShelf from "./components/LibraryShelf.vue";
 import { createWheelStep, wheelPixels, workspaceIndex, workspacePages } from "./workspace-navigation";
 import "./workspace.css";
 import ThoughtBranches from "./components/ThoughtBranches.vue";
+import ThoughtTree from "./components/ThoughtTree.vue";
 import ThoughtBubblePage from "./components/ThoughtBubblePage.vue";
 import ThoughtContext from "./components/ThoughtContext.vue";
 import ThoughtDebate from "./components/ThoughtDebate.vue";
@@ -19,6 +20,7 @@ import type { ArticleGroup, AuthStatus, Bubble, ContentItem, Favlist, Profile, Q
 const readPath = () => window.location.pathname.replace(/\/$/, "") || "/";
 const path = ref(readPath());
 const isBranchPage = computed(() => path.value === "/thought-branches");
+const experimentMode = new URLSearchParams(window.location.search).get("mode") === "experiment";
 const isBubblePage = computed(() => path.value === "/thought-bubbles");
 const thoughtId = ref(new URLSearchParams(window.location.search).get("thought") || "");
 const route = computed(() => {
@@ -343,7 +345,7 @@ function onPageShow(event: PageTransitionEvent) {
 function refreshTitle() {
   document.title = ({
     home: "ThinkSpace · 首页", library: "资料库 · ThinkSpace", account: "个人中心 · ThinkSpace",
-    space: isBubblePage.value ? "思维泡泡 · ThinkSpace" : isBranchPage.value ? "思想分叉 · ThinkSpace"
+    space: isBubblePage.value ? "思维泡泡 · ThinkSpace" : isBranchPage.value ? (experimentMode ? "控制变量实验 · ThinkSpace" : "思想树 · ThinkSpace")
       : path.value === "/space/debate" ? "长桌讨论室 · ThinkSpace" : "思考空间 · ThinkSpace",
   })[route.value];
 }
@@ -442,7 +444,9 @@ onBeforeUnmount(() => {
   <div class="hub-transition-frame">
     <Transition :name="`hub-page-${direction}`" mode="out-in" @before-enter="resetPageScroll">
       <div :key="path">
-  <ThoughtContext v-if="thoughtId && (isBubblePage || isBranchPage || path === '/space/debate')"
+  <ThoughtTree v-if="isBranchPage && !experimentMode" :key="(status?.user_id || '') + ':' + thoughtId"
+    :authenticated="!!status?.authenticated" :source-id="thoughtId || undefined" />
+  <ThoughtContext v-else-if="thoughtId && (isBubblePage || isBranchPage || path === '/space/debate')"
     :key="(status?.user_id || '') + ':' + thoughtId" :id="thoughtId" :active-path="path" v-slot="{ record }">
     <ThoughtBubblePage v-if="isBubblePage" :thought="record" />
     <ThoughtBranches v-else-if="isBranchPage" :thought="record" />

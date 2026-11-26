@@ -15,9 +15,10 @@ const draft = ref<BranchDraft>(linkedExploration
   ? { version: 1, activeId: linkedExploration.id, explorations: [linkedExploration] }
   : createSampleDraft());
 const storageError = ref(""), notice = ref(""), storageBlocked = ref(false);
+let originalDraft: string | null = null;
 try {
-  const saved = props.thought ? null : localStorage.getItem(STORAGE_KEY);
-  if (saved) draft.value = parseDraft(saved);
+  originalDraft = props.thought ? null : localStorage.getItem(STORAGE_KEY);
+  if (originalDraft) draft.value = parseDraft(originalDraft);
 } catch {
   storageBlocked.value = true;
   storageError.value = "本机草稿暂时无法读取，已保留原数据。当前可继续探索并导出，暂不覆盖本机草稿。";
@@ -154,7 +155,13 @@ function download(filename: string, content: string, type: string) {
   const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename; anchor.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-function exportDraft() { download("thinkspace-branches.json", JSON.stringify(draft.value, null, 2), "application/json;charset=utf-8"); }
+function exportDraft() {
+  if (storageBlocked.value && originalDraft !== null) {
+    download("thinkspace-branches-original.txt", originalDraft, "text/plain;charset=utf-8");
+    return;
+  }
+  download("thinkspace-branches.json", JSON.stringify(draft.value, null, 2), "application/json;charset=utf-8");
+}
 function exportCurrentPath() { download("thinkspace-thought-path.md", exportPath(current.value, selected.value.id), "text/markdown;charset=utf-8"); }
 onMounted(() => {
   document.title = "思想分叉 · ThinkSpace";
@@ -176,8 +183,8 @@ onBeforeUnmount(() => { clearTimeout(saveTimer); persist(); resizeObserver?.disc
     </aside>
 
     <main class="thought-main">
-      <header class="thought-topbar"><div><a href="/space">思考空间</a></div><button class="thought-button quiet" @click="exportDraft"><BranchIcon name="download" />导出探索</button></header>
-      <section class="thought-intro"><h1>思想分叉</h1><span class="thought-local">{{ thought ? "本次探索" : "本机草稿" }}</span></section>
+      <header class="thought-topbar"><div><a href="/thought-branches">返回思想树</a></div><button class="thought-button quiet" @click="exportDraft"><BranchIcon name="download" />导出探索</button></header>
+      <section class="thought-intro"><h1>控制变量实验</h1><span class="thought-local">{{ thought ? "本次探索" : "本机草稿" }}</span></section>
       <p v-if="storageError" class="thought-error" role="alert">{{ storageError }}</p>
       <section class="thought-tree" aria-labelledby="tree-heading">
         <div class="tree-toolbar"><div><BranchIcon name="branch" /><h2 id="tree-heading">思考路径</h2><span>{{ current.nodes.length }} 个情境</span></div><div><button class="thought-button quiet compare-toggle" :disabled="comparison.length !== 2" @click="compareDialog?.showModal()"><BranchIcon name="compare" />分支对照<span v-if="comparison.length">{{ comparison.length }}/2</span></button><span class="toolbar-divider"></span><button class="icon-button" aria-label="缩小画布" @click="zoomBy(-.1)"><BranchIcon name="minus" /></button><span class="zoom-label">{{ Math.round(zoom * 100) }}%</span><button class="icon-button" aria-label="放大画布" @click="zoomBy(.1)"><BranchIcon name="plus" /></button><button class="icon-button" aria-label="适应画布" @click="fit"><BranchIcon name="fit" /></button></div></div>

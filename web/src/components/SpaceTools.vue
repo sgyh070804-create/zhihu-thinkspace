@@ -4,7 +4,7 @@ import SpaceIcon from "./SpaceIcon.vue";
 
 const tools = [
   { id: "bubbles", href: "/thought-bubbles", label: "思维泡泡" },
-  { id: "branches", href: "/thought-branches", label: "思想分叉" },
+  { id: "branches", href: "/thought-branches", label: "思想树" },
   { id: "debate", href: "/space/debate", label: "长桌讨论室" },
 ];
 </script>

@@ -1,0 +1,197 @@
+.free-tree {
+  --tree-ink: #283b50;
+  --tree-muted: #526a82;
+  --tree-line: #ccdbea;
+  --tree-blue: #3b638a;
+  margin-block: 30px 54px;
+  color: var(--tree-ink);
+}
+.free-tree-header, .free-tree-nav, .free-tree-switch, .free-tree-tools, .free-tree-tools > div,
+.free-tree-actions, .free-tree-footer, .free-tree-trail, .free-tree-children {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.free-tree-header, .free-tree-tools { justify-content: space-between; }
+.free-tree-header { align-items: end; margin-bottom: 20px; }
+.free-tree-header h1 { margin: 5px 0 0; font-size: clamp(29px, 4vw, 45px); }
+.free-tree .hub-action, .free-tree-dialog .hub-action { min-height: 42px; }
+.free-tree .hub-action svg { width: 17px; height: 17px; }
+.free-tree-switch { margin-bottom: 16px; }
+.free-tree-switch select {
+  min-height: 42px;
+  max-width: min(100%, 610px);
+  border: 1px solid var(--tree-line);
+  border-radius: 10px;
+  padding: 7px 10px;
+  background: #f9fbfd;
+  color: inherit;
+}
+.free-tree-start { max-width: 700px; padding: clamp(18px, 4vw, 30px); }
+.free-tree-start label strong { font-size: 22px; }
+.free-tree textarea, .free-tree-dialog textarea, .free-tree-dialog input {
+  display: block;
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid #c8d8e8;
+  border-radius: 10px;
+  background: #fff;
+  color: inherit;
+  line-height: 1.65;
+}
+.free-tree textarea, .free-tree-dialog textarea {
+  font-family: var(--font-reading, var(--thinkspace-font, serif));
+  resize: vertical;
+}
+.free-tree-start textarea { margin-block: 12px 16px; }
+.free-tree-canvas {
+  border: 1px solid var(--tree-line);
+  border-radius: 22px;
+  background: #f4f8fc;
+  overflow: hidden;
+}
+.free-tree-tools {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--tree-line);
+  color: var(--tree-muted);
+}
+.free-tree-tools .icon-button {
+  min-inline-size: 42px;
+  min-block-size: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--tree-line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--tree-blue);
+}
+.free-tree-tools svg { width: 19px; height: 19px; }
+.free-tree-viewport {
+  position: relative;
+  height: clamp(260px, 42vh, 480px);
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+  background: radial-gradient(circle, #cad9e8 1px, transparent 1px) 0 0 / 23px 23px;
+}
+.free-tree-viewport.is-dragging { cursor: grabbing; }
+.free-tree-viewport:focus-visible { outline: 3px solid #87a7c7; outline-offset: -3px; }
+.free-tree-canvas .tree-connections path.is-candidate { stroke-dasharray: 7 5; }
+.free-tree-leaf {
+  position: absolute;
+  width: 252px;
+  transform-origin: left center;
+  animation: thought-node-enter .28s cubic-bezier(.12,.7,.3,1) both;
+}
+@keyframes thought-node-enter {
+  from { opacity: .2; transform: translateX(-9px) scale(.95); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+.free-tree-node {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  width: 100%;
+  height: 60px;
+  overflow: hidden;
+  padding: 7px 39px 7px 14px;
+  border-radius: 13px;
+  border: 1px solid #b9cde0;
+  background: #fff;
+  box-shadow: 0 5px 16px #324c6910;
+  text-align: left;
+  color: var(--tree-ink);
+  touch-action: manipulation;
+}
+.free-tree-node > strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-reading, var(--thinkspace-font, serif));
+}
+.free-tree-node small { color: var(--tree-muted); }
+.free-tree-node[aria-pressed="true"] { border-color: var(--tree-blue); background: #e3edf8; }
+.is-candidate > .free-tree-node { border-style: dashed; background: #f8fbff; }
+.free-tree-collapse {
+  position: absolute;
+  right: 4px;
+  top: 8px;
+  width: 40px;
+  height: 44px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--tree-blue);
+}
+.free-tree-detail { margin-top: 16px; padding: clamp(18px, 4vw, 28px); }
+.free-tree-detail h2 {
+  margin-block: 12px 4px;
+  overflow-wrap: anywhere;
+  font-family: var(--font-reading, var(--thinkspace-font, serif));
+}
+.free-tree-prose {
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-reading, var(--thinkspace-font, serif));
+}
+.free-tree-relation { color: var(--tree-muted); overflow-wrap: anywhere; }
+.free-tree-detail blockquote { padding-inline-start: 14px; margin-inline: 0; border-inline-start: 3px solid var(--tree-line); }
+.free-tree-trail button, .free-tree-children button {
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 12px;
+  background: #edf4fb;
+  color: var(--tree-blue);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.free-tree-children { margin-block: 14px; }
+.free-tree-detail > .free-tree-actions { margin-block: 20px 12px; }
+.free-tree-references { color: var(--tree-muted); }
+.free-tree-references summary { cursor: pointer; padding: 8px 0; }
+.free-tree-candidates {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 255px), 1fr));
+  gap: 12px;
+  margin-block: 14px;
+}
+.free-tree-suggestion {
+  min-width: 0;
+  padding: 14px;
+  border: 1px dashed #91adc9;
+  border-radius: 13px;
+  background: #f9fcff;
+}
+.free-tree-suggestion h3 { margin: 0; overflow-wrap: anywhere; }
+.free-tree-footer {
+  border-top: 1px solid var(--tree-line);
+  margin-top: 16px;
+  padding-top: 10px;
+  color: var(--tree-muted);
+}
+.free-tree-footer p { margin: 0 auto 0 0; }
+.free-tree-footer button { min-height: 42px; }
+.free-tree-dialog {
+  width: min(620px, calc(100vw - 28px));
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+  border: 1px solid #c4d4e5;
+  border-radius: 20px;
+  padding: 20px clamp(18px, 4vw, 28px);
+  background: #f8fbff;
+  color: #283b50;
+}
+.free-tree-dialog::backdrop { background: #1a304b68; }
+.free-tree-dialog h2 { margin: 0 0 12px; }
+.free-tree-dialog label { display: grid; gap: 5px; margin-block: 9px; }
+.free-tree-dialog .free-tree-actions { justify-content: end; margin-top: 14px; }
+@media (max-width: 620px) {
+  .free-tree { width: calc(100% - 24px); margin-top: 18px; }
+  .free-tree-viewport { height: 260px; }
+  .free-tree-trail button, .free-tree-children button { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .free-tree-leaf { animation: none; }
+}

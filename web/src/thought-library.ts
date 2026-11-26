@@ -3,7 +3,7 @@ import type { ThoughtRecord } from "./types";
 
 export const thoughtModes = [
   { label: "思维泡泡", path: "/thought-bubbles" },
-  { label: "思想分叉", path: "/thought-branches" },
+  { label: "思想树", path: "/thought-branches" },
   { label: "长桌讨论", path: "/space/debate" },
 ];
 

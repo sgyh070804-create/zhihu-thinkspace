@@ -123,6 +123,33 @@ class Store:
                     UNIQUE(user_id, request_id)
                 );
                 CREATE INDEX IF NOT EXISTS idx_thoughts_user ON thoughts(user_id, created_at DESC);
+                CREATE TABLE IF NOT EXISTS thought_trees (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    source_id TEXT,
+                    title TEXT NOT NULL,
+                    nodes TEXT NOT NULL,
+                    version INTEGER NOT NULL DEFAULT 1,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_thought_trees_user ON thought_trees(user_id, updated_at DESC);
+                CREATE TABLE IF NOT EXISTS thought_tree_exports (
+                    tree_id TEXT NOT NULL REFERENCES thought_trees(id) ON DELETE CASCADE,
+                    node_id TEXT NOT NULL,
+                    thought_id TEXT NOT NULL REFERENCES thoughts(id) ON DELETE CASCADE,
+                    PRIMARY KEY(tree_id, node_id)
+                );
+                CREATE TABLE IF NOT EXISTS branch_requests (
+                    id INTEGER PRIMARY KEY,
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    cache_key TEXT NOT NULL,
+                    started_at INTEGER NOT NULL,
+                    finished INTEGER NOT NULL DEFAULT 0,
+                    result TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_branch_requests_time ON branch_requests(started_at);
+                CREATE INDEX IF NOT EXISTS idx_branch_requests_user ON branch_requests(user_id, started_at);
+                CREATE INDEX IF NOT EXISTS idx_branch_requests_cache ON branch_requests(user_id, cache_key, started_at);
                 CREATE VIEW IF NOT EXISTS thought_library AS
                     SELECT id, user_id, title, body, '' AS article_key, source_url, source_title,
                         quote, kind, parent_ids, created_at
@@ -447,42 +474,166 @@ class Store:
         with self._connect() as conn:
             # Keep parent ownership checks and the new record in one write transaction.
             conn.execute("BEGIN IMMEDIATE")
-            existing = conn.execute(
-                "SELECT id FROM thoughts WHERE user_id = ? AND request_id = ?", (user_id, request_id)
-            ).fetchone()
-            if existing:
-                row = conn.execute(
-                    "SELECT * FROM thought_library WHERE user_id = ? AND id = ?", (user_id, existing["id"])
-                ).fetchone()
-                return self._thought(row)
+            return self._write_thought(conn, user_id, request_id, title, body, source_url, kind, parent_ids)
 
-            parents = []
-            for parent_id in parent_ids:
-                parent = conn.execute(
-                    "SELECT * FROM thought_library WHERE user_id = ? AND id = ?", (user_id, parent_id)
-                ).fetchone()
-                if parent is None:
-                    return None
-                parents.append(parent)
-            source = next((parent for parent in parents if parent["source_url"]), None)
-            thought_id = uuid.uuid4().hex
-            conn.execute(
-                """INSERT INTO thoughts(
-                    id, user_id, request_id, title, body, source_url, source_title, quote,
-                    kind, parent_ids, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    thought_id, user_id, request_id, title, body,
-                    source["source_url"] if source else source_url,
-                    source["source_title"] if source else "",
-                    source["quote"] if source else "",
-                    kind, json.dumps(parent_ids), int(time.time()),
-                ),
-            )
+    def _write_thought(
+        self, conn: sqlite3.Connection, user_id: str, request_id: str, title: str, body: str,
+        source_url: str, kind: str, parent_ids: list[str],
+    ) -> dict | None:
+        existing = conn.execute(
+            "SELECT id FROM thoughts WHERE user_id = ? AND request_id = ?", (user_id, request_id)
+        ).fetchone()
+        if existing:
             row = conn.execute(
-                "SELECT * FROM thought_library WHERE user_id = ? AND id = ?", (user_id, thought_id)
+                "SELECT * FROM thought_library WHERE user_id = ? AND id = ?", (user_id, existing["id"])
             ).fetchone()
             return self._thought(row)
+
+        parents = []
+        for parent_id in parent_ids:
+            parent = conn.execute(
+                "SELECT * FROM thought_library WHERE user_id = ? AND id = ?", (user_id, parent_id)
+            ).fetchone()
+            if parent is None:
+                return None
+            parents.append(parent)
+        source = next((parent for parent in parents if parent["source_url"]), None)
+        thought_id = uuid.uuid4().hex
+        conn.execute(
+            """INSERT INTO thoughts(
+                id, user_id, request_id, title, body, source_url, source_title, quote,
+                kind, parent_ids, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                thought_id, user_id, request_id, title, body,
+                source["source_url"] if source else source_url,
+                source["source_title"] if source else "",
+                source["quote"] if source else "",
+                kind, json.dumps(parent_ids), int(time.time()),
+            ),
+        )
+        row = conn.execute(
+            "SELECT * FROM thought_library WHERE user_id = ? AND id = ?", (user_id, thought_id)
+        ).fetchone()
+        return self._thought(row)
+
+    @staticmethod
+    def _tree(conn: sqlite3.Connection, row: sqlite3.Row | None) -> dict | None:
+        if row is None:
+            return None
+        result = dict(row)
+        result.pop("user_id")
+        result["nodes"] = json.loads(result["nodes"])
+        links = conn.execute("SELECT node_id, thought_id FROM thought_tree_exports WHERE tree_id = ?", (row["id"],))
+        result["links"] = {link["node_id"]: link["thought_id"] for link in links}
+        return result
+
+    def list_trees(self, user_id: str) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, title, source_id, updated_at FROM thought_trees WHERE user_id = ? ORDER BY updated_at DESC, id",
+                (user_id,),
+            )
+            return [dict(row) for row in rows]
+
+    def get_tree(self, user_id: str, tree_id: str) -> dict | None:
+        with self._connect() as conn:
+            return self._tree(conn, conn.execute(
+                "SELECT * FROM thought_trees WHERE user_id = ? AND id = ?", (user_id, tree_id)
+            ).fetchone())
+
+    def create_tree(self, user_id: str, tree_id: str, source_id: str | None, root: dict) -> dict:
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO thought_trees(id, user_id, source_id, title, nodes, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING""",
+                (tree_id, user_id, source_id, root["title"], json.dumps([root], ensure_ascii=False), int(time.time())),
+            )
+            return self._tree(conn, conn.execute(
+                "SELECT * FROM thought_trees WHERE user_id = ? AND id = ?", (user_id, tree_id)
+            ).fetchone())
+
+    def update_tree(self, user_id: str, tree_id: str, version: int, nodes: list[dict]) -> dict | None:
+        with self._connect() as conn:
+            changed = conn.execute(
+                """UPDATE thought_trees SET nodes = ?, version = version + 1, updated_at = ?
+                WHERE user_id = ? AND id = ? AND version = ?""",
+                (json.dumps(nodes, ensure_ascii=False), int(time.time()), user_id, tree_id, version),
+            )
+            if changed.rowcount != 1:
+                return None
+            return self._tree(conn, conn.execute(
+                "SELECT * FROM thought_trees WHERE user_id = ? AND id = ?", (user_id, tree_id)
+            ).fetchone())
+
+    def save_tree_export(
+        self, user_id: str, tree_id: str, version: int, node_id: str, request_id: str,
+        title: str, body: str, kind: str, parent_ids: list[str],
+    ) -> tuple[bool, dict | None]:
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            current = conn.execute(
+                "SELECT version FROM thought_trees WHERE id = ? AND user_id = ?", (tree_id, user_id)
+            ).fetchone()
+            if current is None or current["version"] != version:
+                return False, None
+            thought = self._write_thought(conn, user_id, request_id, title, body, "", kind, parent_ids)
+            if thought is not None:
+                conn.execute(
+                    """INSERT INTO thought_tree_exports(tree_id, node_id, thought_id) VALUES (?, ?, ?)
+                    ON CONFLICT(tree_id, node_id) DO UPDATE SET thought_id = excluded.thought_id""",
+                    (tree_id, node_id, thought["id"]),
+                )
+            return True, thought
+
+    def reserve_branch_request(
+        self, user_id: str, cache_key: str, *, total: int, per_user: int, interval: int, concurrency: int,
+    ) -> tuple[str, int | list | None]:
+        now = int(time.time())
+        # Use Beijing calendar days for the local budget.
+        day_start = (now + 8 * 3600) // 86400 * 86400 - 8 * 3600
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            cached = conn.execute(
+                """SELECT result FROM branch_requests
+                WHERE user_id = ? AND cache_key = ? AND started_at > ? AND result IS NOT NULL
+                ORDER BY started_at DESC LIMIT 1""",
+                (user_id, cache_key, now - 86400),
+            ).fetchone()
+            if cached is not None:
+                return "cached", json.loads(cached["result"])
+            conn.execute("DELETE FROM branch_requests WHERE started_at < ?", (now - 7 * 86400,))
+            live, own_live = conn.execute(
+                """SELECT COUNT(*), COUNT(CASE WHEN user_id = ? THEN 1 END) FROM branch_requests
+                WHERE finished = 0 AND started_at > ?""",
+                (user_id, now - 90),
+            ).fetchone()
+            if own_live or live >= concurrency:
+                return "busy", None
+            count, own_count = conn.execute(
+                """SELECT COUNT(*), COUNT(CASE WHEN user_id = ? THEN 1 END) FROM branch_requests
+                WHERE started_at >= ?""",
+                (user_id, day_start),
+            ).fetchone()
+            if count >= total or own_count >= per_user:
+                return "budget", None
+            if interval and conn.execute(
+                "SELECT 1 FROM branch_requests WHERE user_id = ? AND started_at > ? LIMIT 1",
+                (user_id, now - interval),
+            ).fetchone():
+                return "frequency", None
+            job = conn.execute(
+                "INSERT INTO branch_requests(user_id, cache_key, started_at) VALUES (?, ?, ?)",
+                (user_id, cache_key, now),
+            )
+            return "reserved", job.lastrowid
+
+    def finish_branch_request(self, request_id: int, result: list | None) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE branch_requests SET finished = 1, result = ? WHERE id = ?",
+                (json.dumps(result, ensure_ascii=False) if result is not None else None, request_id),
+            )
 
     def list_articles(self, user_id: str) -> list[dict]:
         with self._connect() as conn:
