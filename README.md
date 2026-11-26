@@ -2,6 +2,10 @@
 
 面向知乎阅读的思考工作台。把收藏与阅读手记收进资料库，再用泡泡、思想树和讨论室继续探索。项目使用 Vue 3、TypeScript、FastAPI 和 SQLite。
 
+## 网页字体
+
+网站和浏览器内嵌演示通过 ZeoSeven Fonts 加载分段网页字体。导航和操作界面使用[思源黑体](https://fonts.zeoseven.com/items/69/)，观点、发言和阅读正文使用[霞鹜新致宋](https://fonts.zeoseven.com/items/22/)。字体服务不可用时使用设备上的同类字体。
+
 ## 本地启动
 
 需要 Python 3.10+ 和 Node.js 20+。在仓库根目录用 PowerShell 启动后端。
