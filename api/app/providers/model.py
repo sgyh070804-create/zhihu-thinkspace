@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 from typing import Protocol
+
+import httpx
 
 from ..config import Settings
 
@@ -80,6 +83,52 @@ class FakeModel:
         if not cleaned:
             return "这个问题"
         return cleaned if len(cleaned) <= 28 else cleaned[:28] + "…"
+
+
+class DeepSeekModel:
+    """DeepSeek Flash, using the API's default thinking mode."""
+
+    def __init__(self, api_key: str) -> None:
+        self._api_key = api_key
+
+    def complete(
+        self,
+        *,
+        role_id: str,
+        system: str,
+        topic: str,
+        conversation: list[dict[str, str]],
+        max_chars: int,
+    ) -> str:
+        try:
+            response = httpx.post(
+                "https://api.deepseek.com/chat/completions",
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                json={
+                    "model": "deepseek-flash",
+                    "messages": [
+                        {"role": "system", "content": f"{system}\n请把回复控制在 {max_chars} 字以内。"},
+                        {"role": "user", "content": json.dumps(
+                            {"topic": topic, "messages": conversation}, ensure_ascii=False
+                        )},
+                    ],
+                    "max_tokens": 2048,
+                },
+                timeout=httpx.Timeout(45, connect=10),
+                follow_redirects=False,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError:
+            raise ModelError("AI 暂时不可用，可以重试或自行填写。") from None
+
+        try:
+            choice = response.json()["choices"][0]
+            reply = choice["message"]["content"]
+            if choice["finish_reason"] == "stop" and isinstance(reply, str) and reply.strip():
+                return reply.strip()[:max_chars]
+        except (ValueError, TypeError, IndexError, KeyError):
+            pass
+        raise ModelError("AI 没有返回完整观点，可以重试或自行填写。")
 
 
 def build_model(settings: Settings) -> ModelClient:

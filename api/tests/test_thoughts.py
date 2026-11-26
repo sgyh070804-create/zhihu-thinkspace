@@ -1,4 +1,8 @@
+import json
+from dataclasses import replace
 from uuid import uuid4
+
+import httpx
 
 from fastapi.testclient import TestClient
 
@@ -65,3 +69,60 @@ def test_thought_ownership_and_save_retries(client, tmp_path):
         assert other.get("/api/thoughts").json() == {"items": []}
         assert other.get(f"/api/thoughts/{thought['id']}").status_code == 404
         assert save(other, "跨账号引用", kind="branch", parent_ids=[thought["id"]]).status_code == 404
+
+
+def test_fusion_draft_calls_flash_and_only_saves_after_confirmation(tmp_path, monkeypatch):
+    replies = []
+
+    def post(url, **kwargs):
+        assert url == "https://api.deepseek.com/chat/completions"
+        assert kwargs["headers"]["Authorization"] == "Bearer test-only"
+        assert kwargs["follow_redirects"] is False
+        payload = kwargs["json"]
+        assert payload["model"] == "deepseek-flash"
+        assert "thinking" not in payload
+        contents = json.loads(payload["messages"][1]["content"])
+        assert contents["messages"] == [{"body": "先验证假设"}, {"body": "再逐步投入"}]
+        replies.append(payload)
+        return httpx.Response(200, request=httpx.Request("POST", url), json={"choices": [{
+            "finish_reason": "stop", "message": {"content": "用最低成本验证关键假设，再逐步加大投入。"},
+        }]})
+
+    monkeypatch.setattr("app.providers.model.httpx.post", post)
+    settings = replace(make_settings(tmp_path), deepseek_api_key="test-only")
+    with TestClient(create_app(settings)) as client:
+        sign_in(client)
+        parents = [save(client, text).json()["id"] for text in ("先验证假设", "再逐步投入")]
+        payload = {"parent_ids": parents}
+        response = client.post("/api/thoughts/fusion-draft", json=payload)
+        assert response.status_code == 200
+        assert response.json()["body"] == "用最低成本验证关键假设，再逐步加大投入。"
+        assert len(client.get("/api/thoughts").json()["items"]) == 2
+
+        with TestClient(create_app(settings)) as other:
+            assert other.post("/api/thoughts/fusion-draft", json=payload).status_code == 401
+            sign_in(other)
+            assert other.post("/api/thoughts/fusion-draft", json=payload).status_code == 404
+        assert client.post("/api/thoughts/fusion-draft", json={"parent_ids": [parents[0]] * 2}).status_code == 422
+        assert len(replies) == 1
+
+        saved = save(client, "我修改了 AI 的草稿。", kind="fusion", parent_ids=parents)
+        assert saved.status_code == 201
+        assert saved.json()["parent_ids"] == parents
+
+
+def test_fusion_draft_unavailable_leaves_manual_save_usable(tmp_path, monkeypatch):
+    def unavailable(url, **kwargs):
+        return httpx.Response(429, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr("app.providers.model.httpx.post", unavailable)
+    settings = make_settings(tmp_path)
+    with TestClient(create_app(settings)) as client:
+        sign_in(client)
+        parents = [save(client, text).json()["id"] for text in ("先验证", "再行动")]
+        cookies = dict(client.cookies)
+        assert client.post("/api/thoughts/fusion-draft", json={"parent_ids": parents}).status_code == 503
+
+    with TestClient(create_app(replace(settings, deepseek_api_key="test-only")), cookies=cookies) as client:
+        assert client.post("/api/thoughts/fusion-draft", json={"parent_ids": parents}).status_code == 502
+        assert save(client, "手工合成", kind="fusion", parent_ids=parents).status_code == 201

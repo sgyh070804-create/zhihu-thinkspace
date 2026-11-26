@@ -18,7 +18,14 @@ const reading = ref<SpaceNote | null>(null), loading = ref(true), error = ref(""
 const mode = ref<"account" | "sample">("account"), status = ref<AuthStatus | null>(null);
 const query = ref(""), draftsOnly = ref(false), page = ref(0), paused = ref(false), busy = ref(false);
 const compactScreen = matchMedia("(max-width: 760px)"), pageSize = ref(compactScreen.matches ? 4 : PAGE_SIZE);
-const composer = ref<{ a: SpaceNote; b: SpaceNote } | null>(null), body = ref("");
+type DraftMode = "ai" | "manual";
+const composer = ref<{ a: SpaceNote; b: SpaceNote } | null>(null);
+const draftMode = ref<DraftMode>("ai"), aiBody = ref(""), manualBody = ref("");
+const body = computed({
+  get: () => draftMode.value === "ai" ? aiBody.value : manualBody.value,
+  set: value => { if (draftMode.value === "ai") aiBody.value = value; else manualBody.value = value; },
+});
+const draftRequest = new RequestScope(), generating = ref(false), generationError = ref("");
 const requestedNote = props.thought?.id || new URLSearchParams(window.location.search).get("note");
 const saveRequest = new RequestScope(), saving = ref(false), saveError = ref("");
 let saveId = "";
@@ -111,14 +118,41 @@ async function requestDraft(a: Thought, b: Thought): Promise<Thought> {
   busy.value = true;
   previousFocus = document.activeElement as HTMLElement;
   composer.value = { a: resolveNote(a), b: resolveNote(b) };
-  body.value = "";
+  draftMode.value = mode.value === "account" ? "ai" : "manual";
+  aiBody.value = ""; manualBody.value = ""; generationError.value = "";
   saveId = ""; saveError.value = "";
   const promise = new Promise<Thought>((resolve, reject) => { resolveDraft = resolve; rejectDraft = reject; });
+  if (draftMode.value === "ai") void generateDraft();
   await nextTick(); input.value?.focus();
   return promise;
 }
+async function generateDraft() {
+  if (!composer.value || draftMode.value !== "ai" || generating.value || saving.value) return;
+  const { a, b } = composer.value;
+  const request = draftRequest.begin();
+  generationError.value = ""; generating.value = true;
+  try {
+    const draft = await api<{ body: string }>("/thoughts/fusion-draft", {
+      method: "POST",
+      signal: request.signal,
+      body: JSON.stringify({ parent_ids: [a.id, b.id] }),
+    });
+    if (request.isCurrent()) aiBody.value = draft.body;
+  } catch (reason) {
+    if (request.isCurrent()) generationError.value = reason instanceof ApiError ? reason.message : "AI 生成失败，可以重试或自行填写。";
+  } finally {
+    if (request.isCurrent()) generating.value = false;
+  }
+}
+function chooseDraftMode(next: DraftMode) {
+  if (draftMode.value === next || saving.value) return;
+  draftRequest.invalidate(); generating.value = false;
+  draftMode.value = next; saveId = ""; saveError.value = "";
+  if (next === "ai" && !aiBody.value) void generateDraft();
+  nextTick(() => input.value?.focus());
+}
 async function confirmDraft() {
-  if (!composer.value || !body.value.trim() || saving.value) return;
+  if (!composer.value || !body.value.trim() || saving.value || generating.value) return;
   const { a, b } = composer.value;
   if (mode.value === "account") {
     const request = saveRequest.begin();
@@ -144,6 +178,7 @@ async function confirmDraft() {
 }
 function cancelDraft() {
   if (saving.value) return;
+  draftRequest.invalidate(); generating.value = false;
   composer.value = null; busy.value = false;
   rejectDraft?.(new Error("连接已取消")); resolveDraft = undefined; rejectDraft = undefined;
   nextTick(() => previousFocus?.isConnected && previousFocus.focus({ preventScroll: true }));
@@ -198,7 +233,7 @@ function keydown(event: KeyboardEvent) {
 }
 function trapFocus(event: KeyboardEvent) {
   if (event.key !== "Tab") return;
-  const controls = dialog.value?.querySelectorAll<HTMLElement>("button:not(:disabled), textarea, a[href]");
+  const controls = dialog.value?.querySelectorAll<HTMLElement>("button:not(:disabled), textarea:not(:disabled), a[href]");
   if (!controls?.length) return;
   const first = controls[0], last = controls[controls.length - 1];
   if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
@@ -228,7 +263,7 @@ onMounted(() => {
   void loadAccount();
 });
 onBeforeUnmount(() => {
-  disposed = true; request.invalidate(); saveRequest.invalidate(); clearInterval(statsTimer); clearTimeout(toastTimer);
+  disposed = true; request.invalidate(); draftRequest.invalidate(); saveRequest.invalidate(); clearInterval(statsTimer); clearTimeout(toastTimer);
   document.removeEventListener("keydown", keydown);
   compactScreen.removeEventListener("change", resizePage);
   rejectDraft?.(new Error("页面已离开")); scene?.destroy();
@@ -293,7 +328,7 @@ onBeforeUnmount(() => {
             </button>
           </TransitionGroup>
           <div class="ts-pagination"><span>{{ filtered.length ? page * pageSize + 1 : 0 }}–{{ Math.min((page + 1) * pageSize, filtered.length) }} / {{ filtered.length }}</span><div><button class="ts-icon-button" aria-label="上一组泡泡" :disabled="page === 0 || busy" @click="page--"><SpaceIcon name="left"/></button><button class="ts-icon-button" aria-label="下一组泡泡" :disabled="page >= pageCount - 1 || busy" @click="page++"><SpaceIcon name="right"/></button></div></div>
-          <div class="ts-connection-tools"><button v-if="!picking" class="ts-secondary" :disabled="sceneNotes.length < 2 || busy" @click="closeReader(); picking = true"><SpaceIcon name="link"/>连接两个想法</button><template v-else><button class="ts-primary" :disabled="picked.length !== 2 || busy" @click="startMerge">{{ picked.length === 2 ? '写下新的连接' : `再选 ${2 - picked.length} 个想法` }}</button><button class="ts-quiet" :disabled="busy" @click="picking = false; picked = []">取消</button></template><button v-if="lastMerge" class="ts-icon-button" aria-label="撤销上一次连接" :disabled="busy" @click="undoMerge"><SpaceIcon name="undo"/></button></div>
+          <div class="ts-connection-tools"><button v-if="!picking" class="ts-secondary" :disabled="sceneNotes.length < 2 || busy" @click="closeReader(); picking = true"><SpaceIcon name="link"/>连接两个想法</button><template v-else><button class="ts-primary" :disabled="picked.length !== 2 || busy" @click="startMerge">{{ picked.length === 2 ? '融合所选想法' : `再选 ${2 - picked.length} 个想法` }}</button><button class="ts-quiet" :disabled="busy" @click="picking = false; picked = []">取消</button></template><button v-if="lastMerge" class="ts-icon-button" aria-label="撤销上一次连接" :disabled="busy" @click="undoMerge"><SpaceIcon name="undo"/></button></div>
         </aside>
       </div>
       <footer class="ts-page-footer"><span v-if="draftCount">草稿仅保留在本页。</span><div><button v-if="draftCount" class="ts-quiet" @click="exportDrafts"><SpaceIcon name="download"/>导出草稿</button><button v-if="mode === 'sample' && status?.authenticated" class="ts-quiet" :disabled="busy" @click="loadAccount">回到我的泡泡</button><a v-else-if="mode === 'sample'" href="/account">连接阅读资料</a><a v-else href="/library">打开资料库</a></div></footer>
@@ -305,10 +340,24 @@ onBeforeUnmount(() => {
           <header><span class="ts-composer-symbol"><SpaceIcon name="link"/></span><button type="button" class="ts-icon-button" aria-label="取消连接" :disabled="saving" @click="cancelDraft"><SpaceIcon name="close"/></button></header>
           <h2 id="ts-compose-title">连接两个想法</h2>
           <div class="ts-parents"><blockquote>{{ composer.a.text }}</blockquote><span>与</span><blockquote>{{ composer.b.text }}</blockquote></div>
-          <label for="ts-connection-body">我的新观点</label><textarea id="ts-connection-body" ref="input" v-model="body" required maxlength="4000" placeholder="也许，这两件事之间的联系是…" rows="4" :disabled="saving" @input="saveId = ''"></textarea>
-          <div class="ts-compose-note"><span>{{ body.length }} / 4000</span></div>
+          <div v-if="mode === 'account'" class="ts-segments" role="group" aria-label="融合方式">
+            <span :class="{ 'at-drafts': draftMode === 'manual' }"></span>
+            <button type="button" :aria-pressed="draftMode === 'ai'" :disabled="saving" @click="chooseDraftMode('ai')">AI 生成</button>
+            <button type="button" :aria-pressed="draftMode === 'manual'" :disabled="saving" @click="chooseDraftMode('manual')">自己填写</button>
+          </div>
+          <label for="ts-connection-body">{{ draftMode === 'ai' ? '融合草稿' : '我的新观点' }}</label>
+          <textarea id="ts-connection-body" ref="input" v-model="body" required maxlength="4000"
+            :placeholder="generating ? '正在融合两条思绪…' : '也许，这两件事之间的联系是…'"
+            rows="4" :disabled="saving" :readonly="generating" @input="saveId = ''"></textarea>
+          <div class="ts-compose-note">
+            <span v-if="generating" role="status">AI 正在生成…</span><span>{{ body.length }} / 4000</span>
+          </div>
+          <div v-if="draftMode === 'ai' && generationError">
+            <p role="alert">{{ generationError }}</p>
+            <button type="button" class="ts-quiet" @click="generateDraft">重新生成</button>
+          </div>
           <p v-if="saveError" role="alert">{{ saveError }}</p>
-          <footer><button type="button" class="ts-secondary" :disabled="saving" @click="cancelDraft">再想一想</button><button type="submit" class="ts-primary" :disabled="saving || !body.trim()">{{ saving ? "保存中…" : mode === "account" ? "形成并保存" : "形成新的泡泡" }}</button></footer>
+          <footer><button type="button" class="ts-secondary" :disabled="saving" @click="cancelDraft">再想一想</button><button type="submit" class="ts-primary" :disabled="saving || generating || !body.trim()">{{ saving ? "保存中…" : mode === "account" ? "形成并保存" : "形成新的泡泡" }}</button></footer>
         </form>
       </div>
     </Transition>
