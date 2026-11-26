@@ -50,8 +50,10 @@ async function handle(message) {
   if (message.type === "saveBubble") {
     return request("/bubbles", { method: "POST", body: JSON.stringify(message.payload) });
   }
-  if (message.type === "getBubbles") {
-    return request(`/bubbles?source_url=${encodeURIComponent(message.sourceUrl)}`);
+  if (message.type === "recallBubbles") {
+    const config = await settings();
+    if (!config.extensionToken) return { items: [] };
+    return request("/bubbles/recall", { method: "POST", body: JSON.stringify(message.payload) });
   }
   throw new Error("未知扩展请求。");
 }

@@ -11,10 +11,14 @@
 
   const root = document.createElement("div");
   root.innerHTML = `
+    <div class="ts-recall" hidden aria-label="旧泡泡提醒">
+      <button class="ts-recall-open" type="button" aria-controls="ts-bubble-panel"></button>
+      <button class="ts-recall-dismiss" type="button" aria-label="收起旧泡泡提醒">×</button>
+    </div>
     <button class="ts-launcher" type="button" aria-label="打开 ThinkSpace 灵感泡泡">
       <span class="ts-dot"></span><span>想法</span><span class="ts-count" hidden>0</span>
     </button>
-    <section class="ts-panel" hidden aria-label="ThinkSpace 灵感泡泡">
+    <section id="ts-bubble-panel" class="ts-panel" hidden aria-label="ThinkSpace 灵感泡泡">
       <header class="ts-header"><span class="ts-brand">THINKSPACE · 灵感泡泡</span><button class="ts-close" type="button" aria-label="关闭">×</button></header>
       <div class="ts-body">
         <div class="ts-source"><strong></strong><span></span></div>
@@ -25,7 +29,7 @@
         <textarea id="ts-body-text" class="ts-textarea" placeholder="记录一个疑问、猜想、反例，或暂时不成熟的判断……" maxlength="4000"></textarea>
         <button class="ts-save" type="button">保存泡泡</button>
         <p class="ts-status" role="status"></p>
-        <section class="ts-related" hidden><h3>这篇文章已有的泡泡</h3><div class="ts-notes"></div></section>
+        <section class="ts-related" hidden><h3>相关旧泡泡</h3><div class="ts-notes"></div></section>
         <a class="ts-web" href="http://localhost:5173" target="_blank" rel="noreferrer">在 ThinkSpace 中查看全部 →</a>
       </div>
     </section>`;
@@ -45,9 +49,12 @@
   const status = root.querySelector(".ts-status");
   const related = root.querySelector(".ts-related");
   const notes = root.querySelector(".ts-notes");
+  const recall = root.querySelector(".ts-recall");
+  const recallOpen = root.querySelector(".ts-recall-open");
+  const recallDismiss = root.querySelector(".ts-recall-dismiss");
 
-  let lastUrl = "";
-  let knownCount = 0;
+  let lastUrl = "", lastRequest = "", selectedText = "";
+  let requestVersion = 0, dismissed = false;
 
   function send(message) {
     return chrome.runtime.sendMessage(message).then((response) => {
@@ -58,7 +65,8 @@
 
   function text(selectors) {
     for (const selector of selectors) {
-      const value = document.querySelector(selector)?.textContent?.trim();
+      const element = document.querySelector(selector);
+      const value = (element?.getAttribute("content") || element?.textContent)?.trim();
       if (value) return value;
     }
     return "";
@@ -69,6 +77,13 @@
     url.search = "";
     url.hash = "";
     return url.toString().replace(/\/$/, "");
+  }
+
+  function isReadingUrl(value) {
+    const url = new URL(value);
+    if (url.origin === "https://zhuanlan.zhihu.com") return /^\/p\/\d+$/.test(url.pathname);
+    return url.origin === "https://www.zhihu.com"
+      && /^\/(?:question\/\d+\/answer\/\d+|pin\/\d+|zvideo\/\d+)$/.test(url.pathname);
   }
 
   function sourceInfo() {
@@ -102,52 +117,99 @@
   }
 
   function renderNotes(items) {
-    knownCount = items.length;
     count.hidden = items.length === 0;
     count.textContent = String(items.length);
     related.hidden = items.length === 0;
     notes.replaceChildren();
-    items.slice(0, 3).forEach((item) => {
+    recall.hidden = dismissed || !panel.hidden || items.length === 0;
+    recallOpen.textContent = `找到了 ${items.length} 条旧泡泡`;
+    items.forEach((item) => {
       const note = document.createElement("div");
       note.className = "ts-note";
-      note.textContent = item.body;
+      const match = document.createElement("strong");
+      match.textContent = item.match === "same_article" ? "同一篇文章" : "相关记录";
+      const summary = document.createElement("p");
+      summary.textContent = item.body;
+      const link = document.createElement("a");
+      link.href = `http://localhost:5173/thought-bubbles?note=${encodeURIComponent(item.id)}`;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      link.textContent = "在 ThinkSpace 查看泡泡";
       const time = document.createElement("time");
       time.textContent = new Date(item.created_at * 1000).toLocaleString("zh-CN");
-      note.appendChild(time);
+      note.append(match, summary, link, time);
       notes.appendChild(note);
     });
   }
 
-  async function refreshContext() {
+  async function refreshContext(force = false) {
+    const url = cleanUrl();
+    if (url !== lastUrl) {
+      lastUrl = url;
+      requestVersion++;
+      lastRequest = "";
+      selectedText = "";
+      dismissed = false;
+      setStatus("");
+      setQuote("");
+      renderNotes([]);
+    }
+    const supported = isReadingUrl(url);
+    launcher.hidden = !supported;
+    if (!supported) { panel.hidden = true; return; }
+
     const source = sourceInfo();
-    if (source.source_url === lastUrl) return;
-    lastUrl = source.source_url;
+    const payload = { source_url: url, title: source.title.slice(0, 240), selection: selectedText };
+    const signature = JSON.stringify(payload);
+    if (!force && signature === lastRequest) return;
+    lastRequest = signature;
+    const version = ++requestVersion;
     sourceTitle.textContent = source.title || "当前知乎内容";
     sourceMeta.textContent = `${source.author_name || "未识别作者"} · ${source.source_url}`;
-    setQuote();
     try {
-      const result = await send({ type: "getBubbles", sourceUrl: source.source_url });
-      renderNotes(result.items || []);
+      const result = await send({ type: "recallBubbles", payload });
+      if (version === requestVersion && cleanUrl() === url) renderNotes(result.items || []);
     } catch (error) {
-      knownCount = 0;
-      count.hidden = true;
-      related.hidden = true;
+      if (version !== requestVersion || cleanUrl() !== url) return;
+      renderNotes([]);
       if (!panel.hidden) setStatus(error.message, true);
     }
   }
 
-  launcher.addEventListener("click", () => {
-    panel.hidden = !panel.hidden;
+  function togglePanel(open, fromRecall = false) {
+    panel.hidden = !open;
     if (!panel.hidden) {
-      refreshContext().then(() => body.focus());
+      recall.hidden = true;
       setQuote();
+      if (fromRecall && !related.hidden) {
+        related.scrollIntoView({ block: "nearest" });
+        notes.querySelector("a")?.focus({ preventScroll: true });
+      } else {
+        body.focus();
+      }
+      void refreshContext(!fromRecall);
     }
-  });
-  close.addEventListener("click", () => { panel.hidden = true; });
+  }
+  launcher.addEventListener("click", () => togglePanel(panel.hidden));
+  recallOpen.addEventListener("click", () => { dismissed = true; togglePanel(true, true); });
+  recallDismiss.addEventListener("click", () => { dismissed = true; recall.hidden = true; });
+  close.addEventListener("click", () => { togglePanel(false); launcher.focus(); });
   quoteButton.addEventListener("click", () => setQuote());
-  document.addEventListener("mouseup", () => {
-    if (!panel.hidden && selectionText()) setQuote();
-  });
+  function selectExcerpt(event) {
+    if (event.composedPath().includes(host) || !isReadingUrl(cleanUrl())) return;
+    const selection = window.getSelection();
+    if (selection?.anchorNode?.getRootNode() !== document || selection.focusNode?.getRootNode() !== document) return;
+    const excerpt = selectionText();
+    if (!excerpt) return;
+    if (!panel.hidden) setQuote(excerpt);
+    const next = excerpt.slice(0, 400);
+    if (next !== selectedText && cleanUrl() === lastUrl) {
+      selectedText = next;
+      void refreshContext();
+    }
+  }
+  document.addEventListener("mouseup", selectExcerpt);
+  document.addEventListener("keyup", event => { if (event.shiftKey) selectExcerpt(event); });
 
   save.addEventListener("click", async () => {
     const value = body.value.trim();
@@ -163,14 +225,10 @@
         type: "saveBubble",
         payload: { ...source, body: value, quote: quote.hidden ? "" : quote.textContent },
       });
+      if (cleanUrl() !== source.source_url) return;
       body.value = "";
       setStatus("已保存，并已关联到这篇文章。");
-      const previous = lastUrl;
-      lastUrl = "";
-      await refreshContext();
-      lastUrl = previous;
-      const result = await send({ type: "getBubbles", sourceUrl: source.source_url });
-      renderNotes(result.items || []);
+      await refreshContext(true);
     } catch (error) {
       setStatus(error.message, true);
     } finally {
@@ -178,8 +236,13 @@
     }
   });
 
-  window.setInterval(() => {
-    if (location.href.split("#")[0] !== lastUrl.split("#")[0]) void refreshContext();
-  }, 1200);
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes.extensionToken) return;
+    requestVersion++;
+    lastRequest = "";
+    renderNotes([]);
+    if (changes.extensionToken.newValue) void refreshContext();
+  });
+  window.setInterval(() => { void refreshContext(); }, 1200);
   void refreshContext();
 })();

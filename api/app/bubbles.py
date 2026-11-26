@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
+from .bubble_recall import recall_bubbles
 from .content import canonicalize_zhihu_url
 from .deps import current_identity, store_of
 
@@ -16,6 +17,23 @@ class BubbleInput(BaseModel):
     author_name: str = Field(default="", max_length=200)
     body: str = Field(min_length=1, max_length=4000)
     quote: str = Field(default="", max_length=4000)
+
+
+class BubbleRecallInput(BaseModel):
+    source_url: str = Field(min_length=1, max_length=2000)
+    title: str = Field(default="", max_length=240)
+    selection: str = Field(default="", max_length=400)
+
+
+@router.post("/bubbles/recall")
+def recall_reading_bubbles(payload: BubbleRecallInput, request: Request) -> dict:
+    identity = current_identity(request)
+    try:
+        source = canonicalize_zhihu_url(payload.source_url)
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+    bubbles = store_of(request).list_bubbles(identity.user_id)
+    return {"items": recall_bubbles(bubbles, source.article_key, payload.title, payload.selection)}
 
 
 @router.post("/bubbles", status_code=201)
