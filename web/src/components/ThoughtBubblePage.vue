@@ -306,6 +306,7 @@ onBeforeUnmount(() => {
                   <footer>
                     <span>{{ reading.source }}</span>
                     <a v-if="mode === 'account' && !reading.generated" :href="thoughtLink('/library', reading.id)">在资料库查看</a>
+                    <a v-if="mode === 'account' && !reading.generated" :href="thoughtLink('/thought-branches', reading.id)">用这条思绪开启思想树</a>
                     <a v-if="reading.articleKey" :href="`/library?source=${encodeURIComponent(reading.articleKey)}`">查看关联记录</a>
                     <a v-if="reading.url" :href="reading.url" target="_blank" rel="noopener noreferrer">阅读原文</a>
                   </footer>

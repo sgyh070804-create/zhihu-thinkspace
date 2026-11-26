@@ -122,10 +122,10 @@ export function ancestry(nodes: BranchNode[], id: string): BranchNode[] {
   return result;
 }
 
-export function layoutTree(nodes: BranchNode[], collapsed: Set<string>) {
-  const positions: { node: BranchNode; x: number; y: number }[] = [];
+export function layoutTree<T extends { id: string; parentId: string | null }>(nodes: T[], collapsed: Set<string>) {
+  const positions: { node: T; x: number; y: number }[] = [];
   let leaf = 0;
-  const place = (node: BranchNode, depth: number): number => {
+  const place = (node: T, depth: number): number => {
     const children = collapsed.has(node.id) ? [] : nodes.filter(n => n.parentId === node.id);
     const ys = children.map(n => place(n, depth + 1));
     const y = ys.length ? (ys[0] + ys[ys.length - 1]) / 2 : 16 + leaf++ * 78;

@@ -95,15 +95,74 @@ class ZhihuClient:
         profile["uid"] = str(uid)
         return profile
 
-    async def user_get(self, path: str, params: dict[str, Any], oauth_token: str) -> dict[str, Any]:
+    def _platform_headers(self) -> dict[str, str]:
         if not self.settings.access_secret:
             raise ZhihuError("服务端未配置 ZHIHU_ACCESS_SECRET。", 503, "ZHIHU_NOT_CONFIGURED")
-        headers = {
+        return {
             "Authorization": f"Bearer {self.settings.access_secret}",
             "X-Request-Timestamp": str(int(time.time())),
-            "X-OAuth-Token": oauth_token,
             "Content-Type": "application/json",
         }
+
+    async def _zhida_request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        try:
+            async with httpx.AsyncClient(transport=self.transport, timeout=httpx.Timeout(40, connect=8)) as client:
+                response = await client.request(
+                    method, f"{self.settings.zhihu_api_base}{path}", headers=self._platform_headers(), **kwargs
+                )
+        except httpx.TimeoutException:
+            raise ZhihuError("知乎直答请求超时，可稍后重试。", 504, "ZHIDA_TIMEOUT") from None
+        except httpx.HTTPError:
+            raise ZhihuError("无法连接知乎开放平台。", 502, "ZHIDA_NETWORK") from None
+
+        status = response.status_code
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        api_code = payload.get("Code") if isinstance(payload, dict) else None
+        upstream = payload.get("error") if isinstance(payload, dict) else None
+        error_code = str(upstream.get("code", "")).lower() if isinstance(upstream, dict) else ""
+        if status == 402 or error_code in {"insufficient_quota", "quota_exceeded", "quota_exhausted"}:
+            raise ZhihuError("知乎直答额度已用完。", 429, "ZHIDA_QUOTA_EXHAUSTED")
+        if status in (401, 403) or api_code in (20001, "20001"):
+            raise ZhihuError("知乎直答鉴权失败，请检查服务端凭证及模型权限。", 503, "ZHIDA_AUTH")
+        if status == 429 or api_code in (30001, "30001"):
+            raise ZhihuError("知乎直答正在限流，请稍后再试。", 429, "ZHIDA_RATE_LIMIT")
+        if not response.is_success or api_code not in (None, 0, "0") or upstream:
+            raise ZhihuError("知乎直答服务暂时不可用。", 502, "ZHIDA_UPSTREAM")
+        if not isinstance(payload, dict):
+            raise ZhihuError("知乎直答返回了无法识别的内容。", 502, "ZHIDA_INVALID_RESPONSE")
+        return payload
+
+    async def zhida_remaining(self) -> int:
+        payload = await self._zhida_request("GET", "/api/v1/quota", params={"APIIDs": "zhida_openai"})
+        data = payload.get("Data")
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict) and item.get("APIID") == "zhida_openai":
+                    remaining = item.get("RemainingQuota")
+                    if type(remaining) is int and remaining >= 0:
+                        return remaining
+        raise ZhihuError("无法确认知乎直答免费额度，请检查开放平台配置。", 503, "ZHIDA_QUOTA_UNKNOWN")
+
+    async def zhida_complete(self, messages: list[dict[str, str]]) -> str:
+        payload = await self._zhida_request("POST", "/v1/chat/completions", json={
+            "model": self.settings.zhida_model,
+            "messages": messages,
+            "stream": False,
+        })
+        try:
+            choice = payload["choices"][0]
+            content = choice["message"]["content"]
+            if choice.get("finish_reason") != "error" and isinstance(content, str) and content.strip():
+                return self._redact(content.strip())
+        except (KeyError, IndexError, TypeError, AttributeError):
+            pass
+        raise ZhihuError("知乎直答没有返回可用正文。", 502, "ZHIDA_INVALID_RESPONSE")
+
+    async def user_get(self, path: str, params: dict[str, Any], oauth_token: str) -> dict[str, Any]:
+        headers = {**self._platform_headers(), "X-OAuth-Token": oauth_token}
         try:
             async with httpx.AsyncClient(transport=self.transport, timeout=30) as client:
                 response = await client.get(

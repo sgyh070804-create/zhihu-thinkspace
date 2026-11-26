@@ -3,9 +3,38 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 
-const source = readFileSync(new URL("../src/branches.ts", import.meta.url), "utf8");
-const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { createExploration, createSampleDraft, addBranch, ancestry, layoutTree, parseDraft, exportPath, MAX_NODES, suggestConditions, suggestBranchChanges } = await import("data:text/javascript;base64," + Buffer.from(compiled).toString("base64"));
+async function importSource(path) {
+  const source = readFileSync(new URL(path, import.meta.url), "utf8");
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  return import("data:text/javascript;base64," + Buffer.from(compiled).toString("base64"));
+}
+const { createExploration, createSampleDraft, addBranch, ancestry, layoutTree, parseDraft, exportPath, MAX_NODES, suggestConditions, suggestBranchChanges } = await importSource("../src/branches.ts");
+const { nodePath, removeSubtree } = await importSource("../src/thought-tree.ts");
+
+test("free tree removal leaves other branches independent and preserves the undo snapshot", () => {
+  const graph = [
+    { id: "root", parent_id: null },
+    { id: "left", parent_id: "root" },
+    { id: "right", parent_id: "root" },
+    { id: "child", parent_id: "left" },
+  ];
+  assert.deepEqual(nodePath(graph, "child").map(node => node.id), ["root", "left", "child"]);
+  assert.deepEqual(removeSubtree(graph, "left").map(node => node.id), ["root", "right"]);
+  assert.equal(graph.length, 4);
+});
+
+test("candidate positions share the tree layout and collapse with their parent", () => {
+  const nodes = [
+    { id: "root", parentId: null },
+    { id: "branch", parentId: "root" },
+    { id: "candidate-0", parentId: "branch" },
+  ];
+  const visible = layoutTree(nodes, new Set());
+  assert.ok(visible.positions.find(({ node }) => node.id === "candidate-0"));
+  assert.deepEqual(layoutTree(nodes, new Set(["branch"])).positions.map(({ node }) => node.id), ["branch", "root"]);
+});
 
 test("condition suggestions use the question first and fall back to linked context", () => {
   assert.equal(suggestConditions("读研还是就业？", "阅读策略")[0].label, "资金条件");

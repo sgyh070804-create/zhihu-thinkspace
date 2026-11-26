@@ -30,6 +30,17 @@ def _bool_env(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _bounded_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    raw = os.environ.get(name)
+    try:
+        value = int(raw) if raw is not None else default
+    except ValueError as exc:
+        raise ValueError(f"{name} 必须是整数。") from exc
+    if not minimum <= value <= maximum:
+        raise ValueError(f"{name} 必须在 {minimum} 到 {maximum} 之间。")
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     access_secret: str
@@ -43,6 +54,13 @@ class Settings:
     secret_key: str
     enable_demo: bool
     secure_cookie: bool
+    zhida_model: str = field(default="zhida-fast-1p5", kw_only=True)
+    branch_ai_daily_budget: int = field(default=30, kw_only=True)
+    branch_ai_user_budget: int = field(default=10, kw_only=True)
+    branch_ai_min_interval: int = field(default=5, kw_only=True)
+    branch_ai_concurrency: int = field(default=2, kw_only=True)
+    branch_ai_quota_reserve: int = field(default=1, kw_only=True)
+    branch_ai_allow_demo: bool = field(default=False, kw_only=True)
     # 生成模型提供方。目前只有 fake（确定性假模型）；接知乎直答时在这里切换。
     model_provider: str = "fake"
     deepseek_api_key: str = field(default="", repr=False)
@@ -72,6 +90,13 @@ class Settings:
             ),
             enable_demo=_bool_env("THINKSPACE_ENABLE_DEMO", True),
             secure_cookie=_bool_env("THINKSPACE_SECURE_COOKIE", False),
+            zhida_model=os.environ.get("THINKSPACE_ZHIDA_MODEL", "zhida-fast-1p5").strip(),
+            branch_ai_daily_budget=_bounded_int("THINKSPACE_BRANCH_AI_DAILY_BUDGET", 30, 0, 10000),
+            branch_ai_user_budget=_bounded_int("THINKSPACE_BRANCH_AI_USER_BUDGET", 10, 0, 1000),
+            branch_ai_min_interval=_bounded_int("THINKSPACE_BRANCH_AI_MIN_INTERVAL", 5, 0, 3600),
+            branch_ai_concurrency=_bounded_int("THINKSPACE_BRANCH_AI_CONCURRENCY", 2, 1, 32),
+            branch_ai_quota_reserve=_bounded_int("THINKSPACE_BRANCH_AI_QUOTA_RESERVE", 1, 0, 10000),
+            branch_ai_allow_demo=_bool_env("THINKSPACE_BRANCH_AI_ALLOW_DEMO", False),
             model_provider=os.environ.get("THINKSPACE_MODEL_PROVIDER", "fake"),
             deepseek_api_key=_cred_env("DEEPSEEK_API_KEY"),
         )
@@ -79,3 +104,7 @@ class Settings:
     @property
     def oauth_configured(self) -> bool:
         return bool(self.access_secret and self.oauth_app_id and self.oauth_app_key)
+
+    def __post_init__(self) -> None:
+        if self.zhida_model not in {"zhida-fast-1p5", "zhida-thinking-1p5"}:
+            raise ValueError("THINKSPACE_ZHIDA_MODEL 需要选择快速档或深度思考档。")

@@ -19,7 +19,7 @@
 | 收藏问答 | 收藏页展开收藏夹即可提问；摘要检索和引用落库，不调用生成模型；见 [接口](qa-api.md) |
 | 三维讨论室 | 主站内嵌加载、模型显示及暂停控制已验证；预设回复，不连接 AI |
 | 讨论室后端 | 已保留队友合入主分支的存储、消息、SSE 和 E 模块角色调度接口（假模型）；见 [接口文档](discussions-api.md)，演示前端尚未联调 |
-| 思想分叉 | 树下方当前问题框、单条件分叉、判断记录与对照已实现；本机草稿，见 [说明](thought-branches/README.md) |
+| 思想树 | 账号保存、自由分支和知乎直答候选，真实直答待联调；旧控制变量实验与草稿仍可打开。[使用与配置](thought-branches/README.md) |
 | 验证 | 2026-11-20 合并检查：API 89 项、网页 14 项及构建通过；此前组件检查见 review |
 
 ## 运行与发布
@@ -28,7 +28,7 @@
 
 1. 按根 README 安装依赖，已有 `.env` 不要覆盖。
 2. 启动 API 和网页，打开 `http://localhost:5173`。
-3. 未登录可进入「思想分叉」保存本机草稿，也可进入「思考体验」；点击「先体验本地演示」查看示例资料，再点头像查看分页。
+3. 点击「先体验本地演示」查看资料并使用思想树。旧版未登录草稿可从「控制变量实验」打开。
 4. `npm --prefix web run build` 产出整个 `web/dist/`，其中包括 `experiences/` 的运行资源。生产环境配置同域 `/api/` 反向代理；当前按根路径部署。
 
 Access Secret、App Key、令牌和真实用户数据只留本地或服务端。网页不读取 `.env` 中的秘密；FastAPI 负责读取服务端配置。示例配置见根目录 `.env.example`。
@@ -54,7 +54,7 @@ Access Secret、App Key、令牌和真实用户数据只留本地或服务端。
 ## 代码入口
 
 - `api/app/discussion_engine.py`、`api/app/discussion_engine_api.py`：角色调度与推进；当前使用假模型。
-- `web/src/components/ThoughtBranches.vue`、`web/src/branches.ts`：思想分叉与本机草稿。
+- `web/src/components/ThoughtTree.vue`、`api/app/thought_trees.py`：思想树和直答候选。旧控制变量工具仍位于 `ThoughtBranches.vue`。
 
 - `api/app/auth.py`、`api/app/store.py`：授权与账号归属。
 - `api/app/providers/zhihu.py`、`api/app/zhihu_data.py`：知乎数据适配。
