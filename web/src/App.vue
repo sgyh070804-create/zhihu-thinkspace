@@ -38,34 +38,31 @@ const resume = ref<{ href: string; label: string }>();
 const recentNotes = ref<Bubble[]>([]), recentLoading = ref(false), recentFailed = ref(false);
 const recentRequest = new RequestScope();
 
-type TabKey = "favorites" | "bubbles" | "thoughts";
+type TabKey = "materials" | "thoughts";
 const tabs: { key: TabKey; label: string }[] = [
-  { key: "favorites", label: "收藏" }, { key: "bubbles", label: "来源文章" },
-  { key: "thoughts", label: "思绪" },
+  { key: "materials", label: "阅读资料" }, { key: "thoughts", label: "思绪" },
 ];
 const status = ref<AuthStatus | null>(null), profile = ref<Profile | null>(null);
-const activeTab = ref<TabKey>("favorites");
+const activeTab = ref<TabKey>("materials");
 const loading = ref(true), authBusy = ref(false), error = ref("");
 const favlists = ref<Favlist[]>([]), recent = ref<ContentItem[]>([]), favoriteItems = ref<ContentItem[]>([]);
 const selectedFavlist = ref<Favlist | null>(null);
 const selectedRecent = ref<ContentItem | null>(null);
 const articles = ref<ArticleGroup[]>([]), bubbles = ref<Bubble[]>([]), selectedArticle = ref<ArticleGroup | null>(null);
-const shelfBooks = computed(() => activeTab.value === "favorites"
-  ? [
-    ...favlists.value.map(list => ({
-      id: `folder:${list.UrlToken}`, title: list.Title || "未命名收藏夹", subtitle: list.Description || "公开收藏夹",
-    })),
-    ...recent.value.map(item => ({
-      id: `recent:${item.Url}`, title: item.Title || "未命名收藏", subtitle: "近期收藏",
-    })),
-  ]
-  : articles.value.map(article => ({
-    id: article.article_key, title: article.title || "未命名文章", subtitle: `${article.bubble_count} 条想法`,
-  })));
-const openedBook = computed(() => activeTab.value === "favorites"
-  ? (selectedFavlist.value ? `folder:${selectedFavlist.value.UrlToken}`
-    : selectedRecent.value ? `recent:${selectedRecent.value.Url}` : undefined)
-  : selectedArticle.value?.article_key);
+const shelfBooks = computed(() => [
+  ...favlists.value.map(list => ({
+    id: `folder:${list.UrlToken}`, title: list.Title || "未命名收藏夹", subtitle: list.Description || "公开收藏夹",
+  })),
+  ...recent.value.map(item => ({
+    id: `recent:${item.Url}`, title: item.Title || "未命名收藏", subtitle: "近期收藏",
+  })),
+  ...articles.value.map(article => ({
+    id: `source:${article.article_key}`, title: article.title || "未命名文章", subtitle: `来源文章 · ${article.bubble_count} 条想法`,
+  })),
+]);
+const openedBook = computed(() => selectedFavlist.value ? `folder:${selectedFavlist.value.UrlToken}`
+  : selectedRecent.value ? `recent:${selectedRecent.value.Url}`
+    : selectedArticle.value ? `source:${selectedArticle.value.article_key}` : undefined);
 const pairCode = ref(""), pairLoading = ref(false), detailLoading = ref(false), deletingId = ref("");
 const authRequest = new RequestScope(), tabRequest = new RequestScope(), favoriteRequest = new RequestScope();
 const articleRequest = new RequestScope(), pairRequest = new RequestScope(), deleteRequest = new RequestScope();
@@ -91,7 +88,7 @@ function clearPrivateData() {
   articles.value = []; bubbles.value = []; selectedArticle.value = null;
   pairCode.value = ""; pairLoading.value = false; detailLoading.value = false;
   deletingId.value = ""; loading.value = false; error.value = "";
-  activeTab.value = "favorites";
+  activeTab.value = "materials";
 }
 
 async function loadActive() {
@@ -99,27 +96,25 @@ async function loadActive() {
   if (!status.value?.authenticated || route.value !== "library" || activeTab.value === "thoughts") {
     loading.value = false; return;
   }
-  const tab = activeTab.value;
   loading.value = true; error.value = "";
-  try {
-    const options = { signal: request.signal };
-    if (tab === "favorites") {
-      const [lists, data] = await Promise.all([
-        api<{ Items: Favlist[] }>("/zhihu/favorites/lists", options),
-        api<{ Items: ContentItem[] }>("/zhihu/favorites/recent", options),
-      ]);
-      if (request.isCurrent()) { favlists.value = lists.Items || []; recent.value = data.Items || []; }
-    } else {
-      const data = await api<{ items: ArticleGroup[] }>("/articles", options);
-      if (request.isCurrent()) {
-        articles.value = (data.items || []).filter(item => item.bubble_count > 0);
-        if (selectedArticle.value && !articles.value.some(a => a.article_key === selectedArticle.value?.article_key)) {
-          articleRequest.invalidate(); selectedArticle.value = null; bubbles.value = []; detailLoading.value = false;
-        }
-      }
+  const options = { signal: request.signal };
+  const [lists, items, sources] = await Promise.allSettled([
+    api<{ Items: Favlist[] }>("/zhihu/favorites/lists", options),
+    api<{ Items: ContentItem[] }>("/zhihu/favorites/recent", options),
+    api<{ items: ArticleGroup[] }>("/articles", options),
+  ]);
+  if (!request.isCurrent()) return;
+  if (lists.status === "fulfilled") favlists.value = lists.value.Items || [];
+  if (items.status === "fulfilled") recent.value = items.value.Items || [];
+  if (sources.status === "fulfilled") {
+    articles.value = (sources.value.items || []).filter(item => item.bubble_count > 0);
+    if (selectedArticle.value && !articles.value.some(item => item.article_key === selectedArticle.value?.article_key)) {
+      collapseArticle();
     }
-  } catch (reason) { if (request.isCurrent()) showError(reason); }
-  finally { if (request.isCurrent()) loading.value = false; }
+  }
+  const failed = [lists, items, sources].find(result => result.status === "rejected");
+  if (failed) showError(failed.reason, loadPageData);
+  loading.value = false;
 }
 
 async function loadRecentNotes() {
@@ -164,29 +159,26 @@ async function loadPageData() {
     loading.value = false;
     return;
   }
-  if (source && status.value?.authenticated) activeTab.value = "bubbles";
   await loadActive();
   const article = source && articles.value.find(item => item.article_key === source);
-  if (path.value === "/library" && activeTab.value === "bubbles" && !selectedArticle.value && article &&
-      new URLSearchParams(window.location.search).get("source") === source) {
+  if (status.value?.authenticated && path.value === "/library" && activeTab.value === "materials" &&
+      !openedBook.value && article && new URLSearchParams(window.location.search).get("source") === source) {
     await selectArticle(article);
   }
 }
 
 function openShelfBook(id: string) {
-  if (activeTab.value === "favorites") {
-    if (id.startsWith("recent:")) {
-      collapseFavlist();
-      const item = recent.value.find(value => `recent:${value.Url}` === id);
-      selectedRecent.value = item && item.Url !== selectedRecent.value?.Url ? item : null;
-      return;
-    }
-    const list = favlists.value.find(item => `folder:${item.UrlToken}` === id);
-    if (list) { selectedRecent.value = null; void selectFavlist(list); }
-  } else {
-    const article = articles.value.find(item => item.article_key === id);
-    if (article && selectedArticle.value?.article_key !== id) void selectArticle(article);
-  }
+  const wasOpen = openedBook.value === id;
+  collapseFavlist();
+  collapseArticle();
+  selectedRecent.value = null;
+  if (wasOpen) return;
+
+  const list = favlists.value.find(item => `folder:${item.UrlToken}` === id);
+  if (list) { void selectFavlist(list); return; }
+  const article = articles.value.find(item => `source:${item.article_key}` === id);
+  if (article) { void selectArticle(article); return; }
+  selectedRecent.value = recent.value.find(item => `recent:${item.Url}` === id) || null;
 }
 
 async function loginDemo() {
@@ -212,11 +204,11 @@ async function logout() {
 }
 
 function selectTab(tab: TabKey) {
-  clearQa();
-  favoriteRequest.invalidate(); articleRequest.invalidate(); detailLoading.value = false;
-  selectedFavlist.value = null; selectedRecent.value = null;
-  favoriteItems.value = []; selectedArticle.value = null; bubbles.value = [];
-  if (activeTab.value === "thoughts" || tab === "thoughts") syncThoughtLibraryLink("", tab === "thoughts");
+  if (activeTab.value === tab) return;
+  collapseFavlist();
+  collapseArticle();
+  selectedRecent.value = null;
+  syncThoughtLibraryLink("", tab === "thoughts");
   activeTab.value = tab; void loadActive();
 }
 
@@ -225,6 +217,7 @@ function syncThoughtLibraryLink(id: string, stayOnThoughts = true) {
   url.searchParams.delete("source");
   url.searchParams.delete("thought");
   url.searchParams.delete("tab");
+  url.searchParams.delete("source");
   if (id) url.searchParams.set("thought", id);
   else if (stayOnThoughts) url.searchParams.set("tab", "thoughts");
   thoughtId.value = id;
@@ -289,6 +282,10 @@ async function askQa() {
   } finally { if (request.isCurrent()) qaAsking.value = false; }
 }
 
+function collapseArticle() {
+  articleRequest.invalidate(); detailLoading.value = false;
+  selectedArticle.value = null; bubbles.value = [];
+}
 async function selectArticle(article: ArticleGroup) {
   const request = articleRequest.begin(); selectedArticle.value = article;
   bubbles.value = []; detailLoading.value = true; error.value = "";
@@ -305,7 +302,7 @@ async function removeBubble(id: string) {
     await api(`/bubbles/${id}`, { method: "DELETE", signal: request.signal });
     if (!request.isCurrent()) return;
     // Refresh groups first: deleting the final bubble can remove the article itself.
-    if (activeTab.value === "bubbles") {
+    if (activeTab.value === "materials") {
       await loadActive();
       if (request.isCurrent() && article && selectedArticle.value?.article_key === article.article_key && articles.value.some(item => item.article_key === article.article_key)) {
         await selectArticle(article);
@@ -362,7 +359,7 @@ function switchWorkspace(url: URL, push: boolean) {
   deleteRequest.invalidate(); deletingId.value = "";
   selectedFavlist.value = null; selectedRecent.value = null; favoriteItems.value = [];
   selectedArticle.value = null; bubbles.value = [];
-  activeTab.value = "favorites"; detailLoading.value = false; recentLoading.value = false;
+  activeTab.value = "materials"; detailLoading.value = false; recentLoading.value = false;
   loading.value = status.value?.authenticated === true && route.value === "library";
   error.value = "";
   refreshTitle(); restoreWorkspaceLink();
@@ -515,7 +512,7 @@ onBeforeUnmount(() => {
     </template>
 
     <template v-else>
-      <section v-if="activeTab === 'favorites' && selectedFavlist" class="panel library-detail">
+      <section v-if="activeTab === 'materials' && selectedFavlist" class="panel library-detail">
         <div class="panel-heading"><h2>{{ selectedFavlist.Title }} · 条目</h2></div>
         <p v-if="detailLoading" class="empty" role="status">正在加载条目…</p>
         <p v-else-if="!favoriteItems.length && !error" class="empty">这个收藏夹还没有可显示的条目。</p>
@@ -525,7 +522,7 @@ onBeforeUnmount(() => {
         </article>
       </section>
 
-      <section v-if="activeTab === 'favorites' && selectedRecent" class="panel library-detail">
+      <section v-if="activeTab === 'materials' && selectedRecent" class="panel library-detail">
         <div class="panel-heading"><h2>近期收藏</h2><span>摘要</span></div>
         <article class="content-card">
           <div class="content-meta">{{ selectedRecent.ContentType }} · {{ formatDate(selectedRecent.FavTime) }}</div>
@@ -538,7 +535,7 @@ onBeforeUnmount(() => {
         </article>
       </section>
 
-      <section v-if="activeTab === 'favorites' && selectedFavlist" class="panel qa-panel">
+      <section v-if="activeTab === 'materials' && selectedFavlist" class="panel qa-panel">
         <div class="panel-heading">
           <h2>问「{{ selectedFavlist.Title }}」</h2>
           <span>仅基于收藏摘要 · 无生成模型</span>
@@ -594,7 +591,7 @@ onBeforeUnmount(() => {
         </template>
       </section>
 
-      <section v-if="activeTab === 'bubbles' && selectedArticle" class="library-detail">
+      <section v-if="activeTab === 'materials' && selectedArticle" class="library-detail">
         <div class="panel bubble-detail">
           <template v-if="selectedArticle">
             <div class="panel-heading"><h2>{{ selectedArticle.title }}</h2></div>
