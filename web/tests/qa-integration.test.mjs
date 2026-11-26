@@ -11,8 +11,8 @@ const setup = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8').s
 function harness() {
   const requests = [], unmount = [];
   const api = (path, options = {}) => new Promise((resolve, reject) => requests.push({ path, options, resolve, reject }));
-  const create = new Function('ref', 'computed', 'nextTick', 'onMounted', 'onBeforeUnmount', 'api', 'ApiError', 'RequestScope', 'window', 'document', 'createWheelStep', 'wheelPixels', 'workspaceIndex', 'workspacePages', compile(setup) + '\nreturn {selectFavlist,collapseFavlist,selectTab,clearPrivateData,askQa,qaSession,qaQuestion,qaMessages,qaAsking,qaError,qaLoading,favoriteItems,selectedFavlist,error};');
-  const window = Object.assign(new EventTarget(), { location: { pathname: '/library' } });
+  const create = new Function('ref', 'computed', 'nextTick', 'onMounted', 'onBeforeUnmount', 'api', 'ApiError', 'RequestScope', 'window', 'document', 'createWheelStep', 'wheelPixels', 'workspaceIndex', 'workspacePages', compile(setup) + '\nreturn {selectFavlist,collapseFavlist,selectTab,clearPrivateData,askQa,qaSession,qaQuestion,qaMessages,qaAsking,qaError,qaLoading,favoriteItems,selectedFavlist,selectedArticle,bubbles,articles,openShelfBook,loadActive,status,shelfBooks,error};');
+  const window = Object.assign(new EventTarget(), { location: new URL('http://localhost/library'), history: { replaceState() {} } });
   const state = create(value => ({ value }), getter => ({ get value() { return getter(); } }), () => Promise.resolve(), () => {}, cb => unmount.push(cb), api, Error, RequestScope, window, new EventTarget(), createWheelStep, wheelPixels, workspaceIndex, workspacePages);
   return { ...state, requests, unmount: () => unmount.forEach(cb => cb()) };
 }
@@ -57,10 +57,41 @@ test('switching tabs or unmounting clears QA and rejects stale successful replie
   for (const action of ['tab', 'unmount']) {
     const h = harness(); h.qaSession.value = { id: 'private' }; h.qaQuestion.value = 'question';
     const pending = h.askQa();
-    if (action === 'tab') h.selectTab('bubbles'); else h.unmount();
+    if (action === 'tab') h.selectTab('thoughts'); else h.unmount();
     h.requests[0].resolve({ session: { id: 'private' }, question: { id: 'q' }, answer: { id: 'a' } });
     await pending;
     assert.equal(h.requests[0].options.signal.aborted, true);
     assert.equal(h.qaSession.value, null); assert.deepEqual(h.qaMessages.value, []);
   }
+});
+
+test('one shelf retains source articles when the favorites provider fails', async () => {
+  const h = harness();
+  h.status.value = { authenticated: true };
+  const pending = h.loadActive();
+  const source = { article_key: 'article:1', title: '原文', bubble_count: 1 };
+  h.requests.find(r => r.path === '/articles').resolve({ items: [source] });
+  h.requests.find(r => r.path.endsWith('/recent')).resolve({ Items: [{ Title: '近期收藏', Url: '/recent' }] });
+  h.requests.find(r => r.path.endsWith('/lists')).reject(new Error('收藏夹读取失败'));
+  await pending;
+  assert.deepEqual(h.shelfBooks.value.map(b => b.id), ['recent:/recent', 'source:article:1']);
+  assert.equal(h.error.value, '收藏夹读取失败');
+});
+
+test('opening a source book cancels the folder requests and shows only its notes', async () => {
+  const h = harness();
+  const stale = h.selectFavlist(list(1));
+  const source = { article_key: 'article:1', title: '原文', bubble_count: 1 };
+  h.articles.value = [source];
+  h.openShelfBook('source:article:1');
+  assert.ok(h.requests.slice(0, 2).every(r => r.options.signal.aborted));
+  h.requests[0].resolve({ id: 'old' });
+  h.requests[1].resolve({ Items: [{ Title: '旧收藏' }] });
+  assert.equal(h.requests[2].path, '/bubbles?article_key=article%3A1');
+  h.requests[2].resolve({ items: [{ id: 'note' }] });
+  await stale; await flush();
+  assert.equal(h.selectedFavlist.value, null);
+  assert.equal(h.qaSession.value, null);
+  assert.equal(h.selectedArticle.value, source);
+  assert.deepEqual(h.bubbles.value, [{ id: 'note' }]);
 });
