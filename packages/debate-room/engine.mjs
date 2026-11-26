@@ -36,13 +36,74 @@ export class Spring{
  step(target,dt,k=85,damping=18){const n=Math.max(1,Math.ceil(dt/0.008));const h=dt/n;for(let i=0;i<n;i++){this.velocity+=((target-this.value)*k-this.velocity*damping)*h;this.value+=this.velocity*h;}return this.value;}
 }
 export class DebateEngine{
- constructor(emit=()=>{}){this.emit=emit;this.topic=0;this.speed=1;this.paused=false;this.messages=[];this.index=0;this.current=null;this.elapsed=0;this.wait=0;this.serial=0;this.userQueue=[];}
- reset(topic=this.topic){this.topic=topic;this.messages=[];this.index=0;this.current=null;this.elapsed=0;this.wait=0;this.userQueue=[];this.paused=false;this.emit('reset',{topic});this.next();}
- next(){let turn;if(this.userQueue.length){turn=['user','talk',this.userQueue.shift()];}else{const list=topics[this.topic].turns;turn=list[this.index%list.length];if(this.index>=list.length){const variants=[['explorer','explain','我们换一个角度继续：如果把刚才的原则放到日常生活里，最先遇到的例外会是什么？'],['skeptic','question','我想保留一点不同意见。我们可以拿一个反例，检查刚才的共识是否足够稳固。'],['weaver','open','先把目前的线索放在桌面上：哪些是事实，哪些是判断，哪些仍然需要验证？']];turn=variants[(this.index-list.length)%variants.length];}this.index++;}
- this.start(...turn);}
- start(role,gesture,text){if(this.current&&!this.current.done){this.current.done=true;this.current.visible=this.current.text.length;this.emit('settle',this.current);}
- const m={id:++this.serial,role,gesture,text,visible:0,done:false};this.current=m;this.messages.push(m);this.elapsed=0;this.wait=0;this.emit('turn',m);return m;}
- tick(dt){if(this.paused||!this.current)return;this.elapsed+=dt*this.speed;const m=this.current;const count=Math.min(m.text.length,Math.floor(this.elapsed*20));if(count!==m.visible){m.visible=count;this.emit('text',m);}if(m.visible===m.text.length){if(!m.done){m.done=true;this.emit('settle',m);}this.wait+=dt*this.speed;if(this.wait>2.1)this.next();}}
- submit(text){const value=String(text).trim().slice(0,300);if(!value)return false;this.paused=false;this.start('user','talk',value);this.emit('user',this.current);return true;}
- invite(role){if(!roles.some(r=>r.id===role)||role==='user')return false;const variants={explorer:'我想沿着你刚才的问题，再打开一种可能。先别急着下结论，我们可以从最小的具体情境开始。',skeptic:'我先替这个观点找一个反例。它在哪些情况下可能失效？把边界说清楚，讨论才更有价值。',weaver:'我来把桌上的想法梳理一下：我们已经看见了不同立场，接下来可以比较它们共享的前提。'};this.paused=false;this.start(role,roles.find(r=>r.id===role).gesture,variants[role]);return true;}
+ constructor(emit=()=>{},transport=null){
+  this.emit=emit;this.transport=transport;this.topic=0;this.speed=1;this.paused=false;
+  this.messages=[];this.index=0;this.current=null;this.elapsed=0;this.wait=0;this.serial=0;
+  this.userQueue=[];
+  this.queue=[];        // 等待播放的服务端消息
+  this.seen=new Set();  // 按 seq 去重：POST 响应和 SSE 可能送来同一条
+ }
+ reset(topic=this.topic){
+  this.topic=topic;this.messages=[];this.queue=[];this.seen.clear();
+  this.index=0;this.current=null;this.elapsed=0;this.wait=0;this.userQueue=[];this.paused=false;
+  this.emit('reset',{topic});
+ }
+ /** 收到一条服务端消息：入队，空闲时立即开演。 */
+ push(message){
+  if(!message)return;
+  if(message.seq!=null){
+   if(this.seen.has(message.seq))return;
+   this.seen.add(message.seq);
+  }
+  this.queue.push({role:message.role_id,text:message.body});
+  if(!this.current)this.next();
+ }
+ next(){
+  if(!this.queue.length){this.current=null;return;}
+  const item=this.queue.shift();
+  const role=roles.find(r=>r.id===item.role);
+  this.start(item.role,role?role.gesture:'explain',item.text);
+ }
+ start(role,gesture,text){
+  if(this.current&&!this.current.done){this.current.done=true;this.current.visible=this.current.text.length;this.emit('settle',this.current);}
+  const m={id:++this.serial,role,gesture,text,visible:0,done:false};
+  this.current=m;this.messages.push(m);this.elapsed=0;this.wait=0;this.emit('turn',m);return m;
+ }
+ tick(dt){
+  if(this.paused||!this.current)return;
+  this.elapsed+=dt*this.speed;const m=this.current;
+  const count=Math.min(m.text.length,Math.floor(this.elapsed*20));
+  if(count!==m.visible){m.visible=count;this.emit('text',m);}
+  if(m.visible===m.text.length){
+   if(!m.done){m.done=true;this.emit('settle',m);}
+   this.wait+=dt*this.speed;
+   if(this.wait>2.1)this.next();
+  }
+ }
+ /** 用户发言：先落库，再让编排器推进一轮。失败时 emit('error')。 */
+ submit(text){
+  const value=String(text).trim().slice(0,300);
+  if(!value)return false;
+  if(!this.transport){this.emit('error',{message:'后端未连接'});return false;}
+  this.paused=false;
+  this.transport.send(value).then(message=>{
+   this.push(message);
+   this.emit('user',{role:'user',text:value});
+   return this.transport.advance();
+  }).then(result=>{
+   if(result&&result.message)this.push(result.message);
+  }).catch(error=>{
+   this.emit('error',{message:error.message||'发送失败'});
+  });
+  return true;
+ }
+ /** 邀请某个 AI 角色继续：交给编排器决定谁开口。 */
+ invite(role){
+  if(!this.transport)return false;
+  this.paused=false;
+  this.transport.advance().then(result=>{
+   if(result&&result.message)this.push(result.message);
+  }).catch(()=>{});
+  return true;
+ }
 }

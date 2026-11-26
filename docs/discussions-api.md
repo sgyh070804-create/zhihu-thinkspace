@@ -1,8 +1,8 @@
 # 讨论室接口（D 模块）
 
-日期：2026-11-17。状态：**后端本地实现完成，尚未与前端联调**。
+日期：2026-11-27。状态：**后端本地实现完成；前端已在本地副本接入（未提交）**。
 
-实现：`api/app/discussion_store.py`（数据层）、`api/app/discussions.py`（接口）、`api/tests/test_discussions.py`（56 个用例）。
+实现：`api/app/discussion_store.py`（数据层）、`api/app/discussions.py`（接口）、`api/tests/test_discussions.py`（60 个用例）。
 
 **本模块只负责存储与推送，不产生任何 AI 内容，也不处理流式生成。** 消息在落库时状态就已确定，之后不会改变。探索者、质疑者、归纳者的回复由 E 模块生成完毕后调用存储层写入，D 不伪造、不做增量。
 
@@ -92,7 +92,19 @@
 
 打开 `http://localhost:8000/docs` 可以看到全部接口并直接试。
 
-**列表与详情**都返回完整的 `participants`（在座角色），前端列讨论时不用再逐条请求详情。列表分页参数 `limit`（1–100，默认 20）、`offset`，响应含 `total` 与 `has_more`，按创建时间倒序、同一秒内按插入顺序倒序，翻页不会抖动。
+**列表与详情**都返回完整的 `participants`（在座角色），前端列讨论时不用再逐条请求详情。
+
+分页用 **keyset 游标**：响应里的 `next_cursor` 原样传回 `cursor` 参数即可拿下一页。
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `limit` | 20 | 1–100 |
+| `cursor` | 无 | 上一页返回的 `next_cursor`；为空表示第一页 |
+| `offset` | 0 | 仅为兼容旧调用保留；翻页请用 `cursor` |
+
+排序按 `created_at DESC, rowid DESC`，同一秒创建的多条也有固定顺序。**翻页期间有人新建讨论不会导致重复或漏项**——这是 `offset` 做不到的，因为新记录插到最前面会让后续页整体后移。
+
+`cursor` 格式非法或超出 64 位范围时返回 `422 INVALID_CURSOR`，不会静默退回第一页。
 
 ```json
 {"items": [{"id": "…", "topic": "…", "status": "active", "participants": [...]}],
@@ -376,13 +388,13 @@ source.addEventListener('stream.end', () => source.close());
 // 4. 只有 stopped / finished 两种终态需要关掉输入框
 ```
 
-最小接入改造：把 `engine.mjs` 里 `this.messages.push(m)` 换成渲染服务端返回的消息，`submit()` 改成上面的 POST，其余逻辑不用动。
+前端接入已在本地副本完成（`packages/debate-room/api-client.mjs` + `app.js` + `engine.mjs`），尚未提交。实际改动比预想的多：`engine.mjs` 的数据源从硬编码台词换成了服务端队列，`submit()` 改为落库后调 `/advance`，`app.js` 负责启动时恢复讨论与拉历史。渲染、3D 场景和手势逻辑没有改。
 
 > **安全提醒：`body` 和 `topic` 是纯文本，后端不做 HTML 转义。** 前端必须用 `textContent` 或框架默认的文本插值渲染，**不要用 `innerHTML`**。后端虽然在校验层拒绝了空字符（`\x00`），但 `<script>`、`<img onerror=...>` 这类内容会被原样存储和返回——这是有意的（保真），转义责任在前端。Vue 的 `{{ }}` 默认转义，React 的 `{}` 默认转义，都安全；只有手动 `innerHTML` 才会出问题。
 
 ## 8. 已验证与未验证
 
-已验证（2026-11-18：`pytest api/tests`，**81 passed**。其中讨论模块 56 个，E 模块 15 个；`anyio` 已升级到 4.16 并在 `api/requirements.txt` 约束 `>=4`，SSE 的 `abandon_on_cancel` 不再缺依赖）：
+已验证（2026-11-27：`pytest api/tests`，**105 passed**。其中讨论模块 60 个，E 模块 15 个；`anyio` 已在 `api/requirements.txt` 约束 `>=4`，SSE 的 `abandon_on_cancel` 不缺依赖）：
 
 - 创建：默认座位、角色子集仍保留 user、未知角色 422、`max_turns` 边界、主题空白/超长、**写锁超时返回 503 DATABASE_BUSY**
 - 认证与隔离：11 个端点未登录全部 401；跨用户读/写/暂停/停止/订阅全部 404；列表互不可见

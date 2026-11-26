@@ -35,6 +35,7 @@ from .discussion_store import (
     DiscussionQuotaExceeded,
     DiscussionStateError,
     DiscussionStore,
+    InvalidCursor,
 )
 
 router = APIRouter(prefix="/api/discussions", tags=["discussions"])
@@ -115,6 +116,8 @@ class DiscussionListOut(BaseModel):
     total: int
     limit: int
     offset: int
+    # 下一页的 keyset 游标；为空表示没有更多。翻页期间有人新建也不会重复。
+    next_cursor: str | None = None
     has_more: bool
 
 
@@ -256,6 +259,11 @@ def _translate_errors() -> Generator[None, None, None]:
         raise HTTPException(
             429, detail={"code": "MESSAGE_QUOTA_EXCEEDED", "message": str(exc)}
         ) from exc
+    except InvalidCursor as exc:
+        # 必须放在 ValueError 之前：InvalidCursor 是它的子类
+        raise HTTPException(
+            422, detail={"code": "INVALID_CURSOR", "message": str(exc)}
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             422, detail={"code": "INVALID_REFERENCE", "message": str(exc)}
@@ -309,18 +317,25 @@ def create_discussion(payload: DiscussionInput, request: Request) -> Any:
 def list_discussions(
     request: Request,
     limit: int = Query(default=20, ge=1, le=100),
-    offset: int = Query(default=0, ge=0, le=MAX_SEQ_VALUE),
+    offset: int = Query(
+        default=0, ge=0, le=MAX_SEQ_VALUE, description="兼容旧调用；翻页请改用 cursor"
+    ),
+    cursor: str | None = Query(
+        default=None, max_length=64, description="上一页返回的 next_cursor"
+    ),
 ) -> Any:
     identity = current_identity(request)
-    items, total = _store(request).list_discussions(
-        identity.user_id, limit=limit, offset=offset
-    )
+    with _translate_errors():
+        items, total, next_cursor = _store(request).list_discussions(
+            identity.user_id, limit=limit, offset=offset, cursor=cursor
+        )
     return {
         "items": items,
         "total": total,
         "limit": limit,
         "offset": offset,
-        "has_more": offset + len(items) < total,
+        "next_cursor": next_cursor,
+        "has_more": next_cursor is not None,
     }
 
 
