@@ -1,4 +1,4 @@
-import type { Bubble } from "./types";
+import type { Bubble, ThoughtRecord } from "./types";
 
 export interface SpaceNote {
   id: string;
@@ -26,6 +26,14 @@ export function fromSavedBubble(bubble: Bubble): SpaceNote {
   return { id: bubble.id, text: bubble.body, source: bubble.title || "阅读手记", quote: bubble.quote,
     url: safeSourceUrl(bubble.source_url), createdAt: bubble.created_at,
     ...(bubble.article_key ? { articleKey: bubble.article_key } : {}) };
+}
+
+export function fromThought(record: ThoughtRecord): SpaceNote {
+  return fromSavedBubble({
+    ...record,
+    title: record.source_title || record.title,
+    author_name: "",
+  });
 }
 
 export function safeSourceUrl(value?: string): string | undefined {

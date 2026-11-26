@@ -1,13 +1,22 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import BranchIcon from "./BranchIcon.vue";
-import { addBranch, ancestry, createExploration, createSampleDraft, exportPath, initialConditions, layoutTree, parseDraft, STANCES, STORAGE_KEY } from "../branches";
-import type { BranchDraft, BranchNode } from "../branches";
+import { addBranch, ancestry, createExploration, createSampleDraft, exportPath, initialConditions, layoutTree, parseDraft, STANCES, STORAGE_KEY, suggestBranchChanges, suggestConditions } from "../branches";
+import type { BranchDraft, BranchNode, BranchSuggestion } from "../branches";
+import type { ThoughtRecord } from "../types";
+import ThoughtResultForm from "./ThoughtResultForm.vue";
 
-const draft = ref<BranchDraft>(createSampleDraft());
+const props = defineProps<{ thought?: ThoughtRecord }>();
+const linkedExploration = props.thought ? createExploration(
+  (props.thought.body.length <= 180 ? props.thought.body : props.thought.title).trim() || "这条思绪",
+  suggestConditions(props.thought.body, props.thought.quote),
+) : undefined;
+const draft = ref<BranchDraft>(linkedExploration
+  ? { version: 1, activeId: linkedExploration.id, explorations: [linkedExploration] }
+  : createSampleDraft());
 const storageError = ref(""), notice = ref(""), storageBlocked = ref(false);
 try {
-  const saved = localStorage.getItem(STORAGE_KEY);
+  const saved = props.thought ? null : localStorage.getItem(STORAGE_KEY);
   if (saved) draft.value = parseDraft(saved);
 } catch {
   storageBlocked.value = true;
@@ -32,7 +41,7 @@ let drag: { id: number; x: number; y: number; startX: number; startY: number } |
 let resizeObserver: ResizeObserver | undefined, saveTimer: ReturnType<typeof setTimeout> | undefined;
 
 function persist() {
-  if (storageBlocked.value) return;
+  if (props.thought || storageBlocked.value) return;
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(draft.value)); storageError.value = ""; }
   catch { storageError.value = "本机空间不足或存储不可用，当前修改尚未保存。请先导出备份。"; }
 }
@@ -101,11 +110,29 @@ function toggleComparison() {
 const editor = ref<HTMLDialogElement | null>(null), compareDialog = ref<HTMLDialogElement | null>(null);
 const mode = ref<"branch" | "root">("branch"), conditionKey = ref(""), afterValue = ref(""), question = ref(""), formError = ref("");
 const rootConditions = ref(initialConditions.map(c => ({ ...c })));
+const showRootConditions = ref(false), showBranchSuggestions = ref(false);
+const proposedChanges = computed(() => suggestBranchChanges(selected.value));
+let suggestedQuestion = "";
 const changingCondition = computed(() => selected.value.conditions.find(c => c.key === conditionKey.value));
 function openEditor(nextMode: "branch" | "root") {
   mode.value = nextMode; conditionKey.value = selected.value.conditions[0].key;
   afterValue.value = ""; question.value = ""; formError.value = ""; editor.value?.showModal();
   rootConditions.value = initialConditions.map(c => ({ ...c }));
+  showRootConditions.value = false;
+  showBranchSuggestions.value = false;
+  suggestedQuestion = "";
+}
+function useRootSuggestions() {
+  rootConditions.value = suggestConditions(question.value);
+  showRootConditions.value = true;
+}
+function useBranchSuggestion(suggestion: BranchSuggestion) {
+  conditionKey.value = suggestion.key;
+  afterValue.value = suggestion.value;
+  if (!question.value.trim() || question.value === suggestedQuestion) {
+    question.value = suggestion.question;
+    suggestedQuestion = suggestion.question;
+  }
 }
 function submitEditor() {
   try {
@@ -145,12 +172,12 @@ onBeforeUnmount(() => { clearTimeout(saveTimer); persist(); resizeObserver?.disc
       <div class="exploration-list">
         <button v-for="exploration in draft.explorations" :key="exploration.id" :class="{ active: exploration.id === draft.activeId }" @click="switchExploration(exploration.id)"><BranchIcon name="thought" /><span>{{ exploration.topic }}</span></button>
       </div>
-      <button class="new-exploration" @click="openEditor('root')"><BranchIcon name="plus" />新建探索</button>
+      <button v-if="!thought" class="new-exploration" @click="openEditor('root')"><BranchIcon name="plus" />新建探索</button>
     </aside>
 
     <main class="thought-main">
       <header class="thought-topbar"><div><a href="/space">思考空间</a></div><button class="thought-button quiet" @click="exportDraft"><BranchIcon name="download" />导出探索</button></header>
-      <section class="thought-intro"><h1>思想分叉</h1><span class="thought-local">本机草稿</span></section>
+      <section class="thought-intro"><h1>思想分叉</h1><span class="thought-local">{{ thought ? "本次探索" : "本机草稿" }}</span></section>
       <p v-if="storageError" class="thought-error" role="alert">{{ storageError }}</p>
       <section class="thought-tree" aria-labelledby="tree-heading">
         <div class="tree-toolbar"><div><BranchIcon name="branch" /><h2 id="tree-heading">思考路径</h2><span>{{ current.nodes.length }} 个情境</span></div><div><button class="thought-button quiet compare-toggle" :disabled="comparison.length !== 2" @click="compareDialog?.showModal()"><BranchIcon name="compare" />分支对照<span v-if="comparison.length">{{ comparison.length }}/2</span></button><span class="toolbar-divider"></span><button class="icon-button" aria-label="缩小画布" @click="zoomBy(-.1)"><BranchIcon name="minus" /></button><span class="zoom-label">{{ Math.round(zoom * 100) }}%</span><button class="icon-button" aria-label="放大画布" @click="zoomBy(.1)"><BranchIcon name="plus" /></button><button class="icon-button" aria-label="适应画布" @click="fit"><BranchIcon name="fit" /></button></div></div>
@@ -177,18 +204,32 @@ onBeforeUnmount(() => { clearTimeout(saveTimer); persist(); resizeObserver?.disc
         </div>
         <div class="question-judgment"><div class="judgment-heading"><label for="branch-judgment">此刻，你怎么想？</label><select aria-label="当前判断倾向" :value="selected.stance" @change="editStance"><option v-for="stance in STANCES" :key="stance">{{ stance }}</option></select></div><textarea id="branch-judgment" :value="selected.judgment" maxlength="4000" placeholder="记录你的判断、理由，或者暂时没有答案的地方…" @input="editJudgment"></textarea><div class="judgment-actions"><span class="draft-state">{{ selected.confirmed ? '这一步的判断已确认' : '允许保留疑问，也可以稍后再写' }}</span><button class="thought-button quiet" :disabled="!selected.judgment.trim()" @click="confirmJudgment"><BranchIcon name="check" />确认判断</button><button class="thought-button primary" @click="openEditor('branch')"><BranchIcon name="plus" />改变一个条件</button></div></div>
       </section>
-      <footer class="thought-footer"><span role="status">{{ notice || (storageError ? '当前修改仅保留在页面，请先导出备份。' : '草稿自动保存在本浏览器，刷新后可继续。') }}</span><button @click="exportCurrentPath">导出当前路径</button></footer>
+      <footer class="thought-footer"><span role="status">{{ notice || (thought ? '确认判断后可存入资料库。' : storageError ? '当前修改仅保留在页面，请先导出备份。' : '草稿自动保存在本浏览器，刷新后可继续。') }}</span><button @click="exportCurrentPath">导出当前路径</button></footer>
     </main>
 
     <dialog ref="editor" class="thought-dialog" aria-labelledby="branch-editor-title" @close="formError = ''">
       <form @submit.prevent="submitEditor"><div class="dialog-heading"><h2 id="branch-editor-title">{{ mode === 'root' ? '新建探索' : '创建分支' }}</h2><button type="button" class="icon-button" aria-label="关闭情境编辑" @click="editor?.close()"><BranchIcon name="close" /></button></div>
         <template v-if="mode === 'branch'"><p class="dialog-note">从「{{ selected.title }}」继续，其他条件保持一致。</p><label for="condition-choice">这次改变哪个条件？</label><select id="condition-choice" v-model="conditionKey" @change="afterValue = ''"><option v-for="condition in selected.conditions" :key="condition.key" :value="condition.key">{{ condition.label }}</option></select><p class="previous-condition">当前：{{ changingCondition?.value }}</p><label for="condition-value">新的条件</label><input id="condition-value" v-model="afterValue" required maxlength="120" placeholder="例如：决定无法撤回" /></template>
         <label for="branch-question">{{ mode === 'root' ? '你想探索什么问题？' : '在这个条件下，你想问什么？' }}</label><textarea id="branch-question" v-model="question" required maxlength="180" :placeholder="mode === 'root' ? '例如：AI 可以替我做决定吗？' : '把问题写具体一点，让这次分叉有明确的方向。'"></textarea>
-        <details v-if="mode === 'root'" class="root-conditions-editor"><summary>设定三个起始条件</summary><p class="dialog-note">默认是 AI 决策情境。探索其他问题时，请在这里填写适用的条件。</p><div v-for="(condition, i) in rootConditions" :key="condition.key"><label :for="'root-label-' + i">条件 {{ i + 1 }} 名称</label><input :id="'root-label-' + i" v-model="condition.label" required maxlength="24" /><label :for="'root-value-' + i">条件 {{ i + 1 }} 内容</label><input :id="'root-value-' + i" v-model="condition.value" required maxlength="120" /></div></details><p v-if="formError" class="thought-error" role="alert">{{ formError }}</p><div class="dialog-actions"><button type="button" class="thought-button quiet" @click="editor?.close()">取消</button><button type="submit" class="thought-button primary">{{ mode === 'root' ? '开始探索' : '创建分支' }}</button></div>
+        <section v-if="mode === 'branch'" class="branch-suggestions" aria-label="条件建议">
+          <button type="button" class="thought-button quiet" :aria-expanded="showBranchSuggestions" @click="showBranchSuggestions = !showBranchSuggestions">条件建议</button>
+          <div v-if="showBranchSuggestions" class="branch-suggestion-options">
+            <button v-for="suggestion in proposedChanges" :key="suggestion.key" type="button" class="thought-button quiet"
+              @click="useBranchSuggestion(suggestion)">{{ suggestion.label }} · {{ suggestion.value }}</button>
+          </div>
+        </section>
+        <details v-else class="root-conditions-editor" :open="showRootConditions" @toggle="showRootConditions = ($event.target as HTMLDetailsElement).open">
+          <summary>设定三个起始条件</summary>
+          <button type="button" class="thought-button quiet" :disabled="!question.trim()" @click="useRootSuggestions">按问题生成条件建议</button>
+          <div v-for="(condition, i) in rootConditions" :key="condition.key"><label :for="'root-label-' + i">条件 {{ i + 1 }} 名称</label><input :id="'root-label-' + i" v-model="condition.label" required maxlength="24" /><label :for="'root-value-' + i">条件 {{ i + 1 }} 内容</label><input :id="'root-value-' + i" v-model="condition.value" required maxlength="120" /></div>
+        </details>
+        <p v-if="formError" class="thought-error" role="alert">{{ formError }}</p><div class="dialog-actions"><button type="button" class="thought-button quiet" @click="editor?.close()">取消</button><button type="submit" class="thought-button primary">{{ mode === 'root' ? '开始探索' : '创建分支' }}</button></div>
       </form>
     </dialog>
     <dialog ref="compareDialog" class="thought-dialog comparison-dialog" aria-labelledby="branch-comparison-title"><div class="dialog-heading"><div><p class="thought-eyebrow">TWO PATHS, YOUR PERSPECTIVE</p><h2 id="branch-comparison-title">条件变了，判断呢？</h2></div><button class="icon-button" aria-label="关闭分支对照" @click="compareDialog?.close()"><BranchIcon name="close" /></button></div><div class="comparison-columns"><article v-for="node in comparisonNodes" :key="node.id"><span class="comparison-origin">{{ node.origin === 'sample' ? '示例情境' : '自建情境' }}</span><h3>{{ node.question }}</h3><dl><template v-for="condition in node.conditions" :key="condition.key"><dt>{{ condition.label }}</dt><dd :class="{ difference: comparisonNodes.some(other => other.conditions.find(c => c.key === condition.key)?.value !== condition.value) }">{{ condition.value }}</dd></template></dl><div class="comparison-judgment"><span>我的判断 · {{ node.confirmed ? '已确认' : '待确认' }}</span><strong>{{ node.stance }}</strong><p>{{ node.judgment || '还没有记录理由，可以回到这个情境继续思考。' }}</p></div><button class="thought-button quiet" @click="selectNode(node); compareDialog?.close()">回到这个情境</button></article></div><p class="dialog-note">不同条件可以有不同判断，不必让两条路径得出相同答案。</p></dialog>
   </div>
+  <ThoughtResultForm v-if="thought && selected.confirmed" :key="selected.id + ':' + selected.judgment"
+    class="shell" :parent-id="thought.id" kind="branch" :initial-body="selected.judgment" />
 </template>
 
 <style scoped src="../thought-branches.css"></style>

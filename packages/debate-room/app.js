@@ -14,7 +14,7 @@ for(const role of roles){const person=document.createElement('button');person.cl
 function syncPause(){const p=engine.paused;scene?.setPaused(p);$('#pause').textContent=p?'▶':'Ⅱ';$('#pause').setAttribute('aria-label',p?'继续讨论':'暂停讨论');$('#discussion-status').textContent=p?'讨论已暂停':'讨论进行中';}
 function record(m){let el=records.get(m.id);if(!el){el=document.createElement('article');el.className='transcript-item';const label=document.createElement('small');label.textContent=`${roles.find(r=>r.id===m.role).name} · 第 ${m.id} 次发言`;const body=document.createElement('p');el.append(label,body);transcript.appendChild(el);records.set(m.id,el);}el.querySelector('p').textContent=m.done?m.text:m.text.slice(0,m.visible);$('#message-count').textContent=engine.messages.length;}
 function emit(kind,m){if(kind==='reset'){records.clear();transcript.replaceChildren();view.forEach(v=>{v.speech.classList.remove('show','past');v.person.classList.remove('live');v.text.nodeValue='';v.label.classList.remove('active');});previous=null;$('#topic-title').textContent=topics[m.topic].title;$('#topic-sub').textContent=topics[m.topic].sub;return;}
- if(kind==='turn'){if(previous){const old=view.get(previous);old.speech.classList.remove('show');old.speech.classList.add('past');old.person.classList.remove('live');old.label.classList.remove('active');}const v=view.get(m.role);v.text.nodeValue='';v.chars=m.text.length;v.speech.classList.remove('past');v.speech.classList.add('show');v.person.classList.add('live');v.label.classList.add('active');v.cursor.hidden=false;previous=m.role;scene.setSpeaker(m.role,m.gesture);record(m);syncPause();}
+ if(kind==='turn'){if(previous){const old=view.get(previous);old.speech.classList.remove('show');old.speech.classList.add('past');old.person.classList.remove('live');old.label.classList.remove('active');}const v=view.get(m.role);v.text.nodeValue='';v.chars=m.text.length;v.speech.classList.remove('past');v.speech.classList.add('show');v.person.classList.add('live');v.label.classList.add('active');v.cursor.hidden=false;previous=m.role;scene?.setSpeaker(m.role,m.gesture);record(m);syncPause();}
  if(kind==='text'){const v=view.get(m.role);v.text.nodeValue=m.text.slice(0,m.visible);record(m);}
  if(kind==='settle'){const v=view.get(m.role);v.text.nodeValue=m.text;v.cursor.hidden=true;record(m);}
  if(kind==='user')toast('轮到你了，大家正在听。');
@@ -37,6 +37,23 @@ $('#motion-open').onclick=()=>{previewPaused=engine.paused;engine.paused=true;sy
 gestures.forEach(gesture=>{const b=document.createElement('button');b.textContent=gestureNames[gesture];b.dataset.gesture=gesture;b.onclick=()=>{scene.preview($('#actor').value,gesture,true);$('#gesture-list').querySelectorAll('button').forEach(el=>el.classList.toggle('selected',el===b));toast(`${roles.find(r=>r.id===$('#actor').value).name} · ${gestureNames[gesture]}`);};$('#gesture-list').appendChild(b);});
 $('#actor').onchange=()=>{const selected=$('#gesture-list button.selected');if(selected)scene.preview($('#actor').value,selected.dataset.gesture,true);};
 let maxGap=0;setInterval(()=>{if(!scene)return;const s=scene.stats();$('#stats').textContent=`${s.actors} 位角色 · ${s.frames} 帧已绘制 · 预热后平均帧间隔 ${s.mean.toFixed(1)}ms · P95 ${s.p95.toFixed(1)}ms · 最近 600 帧 >50ms：${s.over50} · DPR ${s.dpr.toFixed(2)}`;$('#stats').dataset.frames=s.frames;$('#stats').dataset.p95=s.p95.toFixed(2);$('#stats').dataset.over50=s.over50;},1000);
-// Public host integration: no network calls, no authentication, all data stays in-page.
-window.debateRoom={setTopic:index=>{if(index>=0&&index<topics.length)engine.reset(index);},submit:text=>engine.submit(text),pause:()=>{engine.paused=true;syncPause();},resume:()=>{engine.paused=false;syncPause();},getTranscript:()=>engine.messages.map(m=>({...m})),dispose:()=>scene?.dispose()};
+let thoughtTopicIndex;
+function setThought(title, body) {
+ const topic = {
+  title: title.trim().slice(0, 180),
+  sub: body.trim() === title.trim() ? '来自资料库的思绪' : body.trim().slice(0, 180),
+  turns: [
+   ['explorer', 'question', '这条思绪里，你最想讨论的是哪一个问题？'],
+   ['skeptic', 'point', '什么例子会让你重新考虑现在的判断？'],
+   ['weaver', 'nod', '我们可以先区分已经知道的、正在猜的，以及下一步想查证的。'],
+  ],
+ };
+ thoughtTopicIndex ??= topics.length;
+ topics[thoughtTopicIndex] = topic;
+ engine.reset(thoughtTopicIndex);
+ // The shared thought is the topic. The local roles only provide sample prompts.
+ $('#topic-open').hidden = true;
+ syncPause();
+}
+window.debateRoom={setThought,setTopic:index=>{if(index>=0&&index<topics.length)engine.reset(index);},submit:text=>engine.submit(text),pause:()=>{engine.paused=true;syncPause();},resume:()=>{engine.paused=false;syncPause();},getTranscript:()=>engine.messages.map(m=>({...m})),dispose:()=>scene?.dispose()};
 window.addEventListener('pagehide',()=>scene?.dispose(),{once:true});

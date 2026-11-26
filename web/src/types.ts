@@ -81,6 +81,19 @@ export interface Bubble {
   created_at: number;
 }
 
+export interface ThoughtRecord {
+  id: string;
+  title: string;
+  body: string;
+  source_url: string;
+  source_title: string;
+  article_key: string;
+  quote: string;
+  kind: "reading" | "library" | "fusion" | "branch" | "discussion" | "revision";
+  parent_ids: string[];
+  created_at: number;
+}
+
 export interface QaCitation {
   source_url: string;
   title: string;

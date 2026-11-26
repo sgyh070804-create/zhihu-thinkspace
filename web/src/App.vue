@@ -11,12 +11,16 @@ import { createWheelStep, wheelPixels, workspaceIndex, workspacePages } from "./
 import "./workspace.css";
 import ThoughtBranches from "./components/ThoughtBranches.vue";
 import ThoughtBubblePage from "./components/ThoughtBubblePage.vue";
+import ThoughtContext from "./components/ThoughtContext.vue";
+import ThoughtDebate from "./components/ThoughtDebate.vue";
+import ThoughtLibrary from "./components/ThoughtLibrary.vue";
 import type { ArticleGroup, AuthStatus, Bubble, ContentItem, Favlist, Profile, QaMessage, QaSession } from "./types";
 
 const readPath = () => window.location.pathname.replace(/\/$/, "") || "/";
 const path = ref(readPath());
 const isBranchPage = computed(() => path.value === "/thought-branches");
 const isBubblePage = computed(() => path.value === "/thought-bubbles");
+const thoughtId = ref(new URLSearchParams(window.location.search).get("thought") || "");
 const route = computed(() => {
   if (path.value === "/library") return "library";
   if (path.value === "/account") return "account";
@@ -34,9 +38,10 @@ const resume = ref<{ href: string; label: string }>();
 const recentNotes = ref<Bubble[]>([]), recentLoading = ref(false), recentFailed = ref(false);
 const recentRequest = new RequestScope();
 
-type TabKey = "favorites" | "bubbles";
+type TabKey = "favorites" | "bubbles" | "thoughts";
 const tabs: { key: TabKey; label: string }[] = [
   { key: "favorites", label: "收藏" }, { key: "bubbles", label: "来源文章" },
+  { key: "thoughts", label: "思绪" },
 ];
 const status = ref<AuthStatus | null>(null), profile = ref<Profile | null>(null);
 const activeTab = ref<TabKey>("favorites");
@@ -91,7 +96,7 @@ function clearPrivateData() {
 
 async function loadActive() {
   const request = tabRequest.begin();
-  if (!status.value?.authenticated || route.value !== "library") {
+  if (!status.value?.authenticated || route.value !== "library" || activeTab.value === "thoughts") {
     loading.value = false; return;
   }
   const tab = activeTab.value;
@@ -152,7 +157,13 @@ async function loadPageData() {
     return;
   }
   if (route.value !== "library") return;
-  const source = new URLSearchParams(window.location.search).get("source");
+  const params = new URLSearchParams(window.location.search);
+  const source = params.get("source");
+  if ((params.has("thought") || params.get("tab") === "thoughts") && status.value?.authenticated) {
+    activeTab.value = "thoughts";
+    loading.value = false;
+    return;
+  }
   if (source && status.value?.authenticated) activeTab.value = "bubbles";
   await loadActive();
   const article = source && articles.value.find(item => item.article_key === source);
@@ -205,7 +216,20 @@ function selectTab(tab: TabKey) {
   favoriteRequest.invalidate(); articleRequest.invalidate(); detailLoading.value = false;
   selectedFavlist.value = null; selectedRecent.value = null;
   favoriteItems.value = []; selectedArticle.value = null; bubbles.value = [];
+  if (activeTab.value === "thoughts" || tab === "thoughts") syncThoughtLibraryLink("", tab === "thoughts");
   activeTab.value = tab; void loadActive();
+}
+
+function syncThoughtLibraryLink(id: string, stayOnThoughts = true) {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("source");
+  url.searchParams.delete("thought");
+  url.searchParams.delete("tab");
+  if (id) url.searchParams.set("thought", id);
+  else if (stayOnThoughts) url.searchParams.set("tab", "thoughts");
+  thoughtId.value = id;
+  workspaceSearch = url.search;
+  window.history.replaceState(window.history.state, "", url);
 }
 
 function clearQa() {
@@ -331,6 +355,7 @@ function switchWorkspace(url: URL, push: boolean) {
   transitionUntil = performance.now() + 520;
   if (push) window.history.pushState({}, "", url);
   workspaceSearch = url.search;
+  thoughtId.value = url.searchParams.get("thought") || "";
   path.value = url.pathname;
   clearQa();
   tabRequest.invalidate(); favoriteRequest.invalidate(); articleRequest.invalidate(); recentRequest.invalidate();
@@ -417,7 +442,13 @@ onBeforeUnmount(() => {
   <div class="hub-transition-frame">
     <Transition :name="`hub-page-${direction}`" mode="out-in" @before-enter="resetPageScroll">
       <div :key="path">
-  <ThoughtBubblePage v-if="isBubblePage" />
+  <ThoughtContext v-if="thoughtId && (isBubblePage || isBranchPage || path === '/space/debate')"
+    :key="(status?.user_id || '') + ':' + thoughtId" :id="thoughtId" :active-path="path" v-slot="{ record }">
+    <ThoughtBubblePage v-if="isBubblePage" :thought="record" />
+    <ThoughtBranches v-else-if="isBranchPage" :thought="record" />
+    <ThoughtDebate v-else :thought="record" />
+  </ThoughtContext>
+  <ThoughtBubblePage v-else-if="isBubblePage" />
   <ThoughtBranches v-else-if="isBranchPage" />
   <WorkspaceHome v-else-if="route === 'home'" :authenticated="!!status?.authenticated"
     :recent="recentNotes" :loading="authBusy || recentLoading" :failed="recentFailed" :resume="resume" />
@@ -449,7 +480,9 @@ onBeforeUnmount(() => {
       <button v-for="tab in tabs" :key="tab.key" :class="{ active: activeTab === tab.key }"
         :aria-pressed="activeTab === tab.key" @click="selectTab(tab.key)">{{ tab.label }}</button>
     </nav>
-    <LibraryShelf v-if="route === 'library'" :key="activeTab" :books="shelfBooks" :open-id="openedBook"
+    <ThoughtLibrary v-if="route === 'library' && activeTab === 'thoughts' && status?.authenticated"
+      :key="status.user_id || ''" :initial-id="thoughtId" @select="syncThoughtLibraryLink" />
+    <LibraryShelf v-else-if="route === 'library'" :key="activeTab" :books="shelfBooks" :open-id="openedBook"
       :loading="authBusy || (!!status?.authenticated && loading)"
       @open="openShelfBook" />
     <section v-if="!status?.authenticated" id="library-connect" class="panel hub-gate" aria-label="登录">
