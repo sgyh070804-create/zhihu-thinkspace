@@ -1,6 +1,8 @@
 :root {
-  --thinkspace-font: Georgia, "Songti SC", serif;
-  font-family: var(--thinkspace-font);
+  --font-interface: "Noto Sans CJK", "Source Han Sans SC", "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", sans-serif;
+  --font-reading: "LXGW Neo ZhiSong", "Songti SC", "Noto Serif CJK SC", "SimSun", Georgia, serif;
+  --thinkspace-font: var(--font-interface);
+  font-family: var(--font-interface);
   color: #26384c;
   background: #edf1f5;
   font-synthesis: none;
@@ -16,6 +18,33 @@
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; }
 button, input, textarea, select { font: inherit; }
+
+/* Use the reading face for prose inside otherwise interactive components. */
+.hub-quotation,
+.hub-recent-item strong,
+.thought-record-body,
+.thought-record-detail > h2,
+.thought-record-form input:not([type="url"]),
+#current-question-title,
+#condition-value,
+.branch-node > strong,
+.condition-tags,
+.comparison-columns h3,
+.comparison-columns dd,
+.comparison-judgment p,
+.thought-space .tb-thought,
+.ts-reader-body,
+.ts-note-card p,
+.ts-parents blockquote,
+.content-card > a,
+.content-card > p,
+.bubble-card > p,
+.qa-body,
+.qa-citation > span,
+blockquote,
+textarea {
+  font-family: var(--font-reading);
+}
 button, a { -webkit-tap-highlight-color: transparent; }
 a { color: inherit; }
 button { cursor: pointer; }

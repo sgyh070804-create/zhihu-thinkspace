@@ -26,6 +26,10 @@ AI 阅读思考助手与个人收藏知识库：收藏问答、拓展视角、�
 
 网页通过 `GET /api/thoughts` 列出思绪，通过 `GET /api/thoughts/{id}` 读取单条。旧泡泡沿用原 ID，扩展仍使用原来的泡泡接口。 `POST /api/thoughts` 接受正文、可选标题和 UUID `request_id`。手记可附知乎原文地址。融合传入两条父思绪 ID，分叉结论、讨论心得和整理版本各传一条，后端校验归属并按账号对重复提交去重。
 
+## 网页字体
+
+网站和浏览器内嵌演示通过 ZeoSeven Fonts 加载分段网页字体。导航和操作界面使用[思源黑体](https://fonts.zeoseven.com/items/69/)，观点、发言和阅读正文使用[霞鹜新致宋](https://fonts.zeoseven.com/items/22/)。字体服务不可用时使用设备上的同类字体。
+
 ## 本地启动
 
 思想分叉已有可运行的本机草稿前端：从「思考空间」的思想分叉卡片或 `/thought-branches` 进入，树下方显示当前问题，支持单条件分叉、判断记录、分支对照及导出。无需 API 即可体验，真实 AI 与账号同步未接入。[运行、截图与验证范围](docs/thought-branches/README.md)。
