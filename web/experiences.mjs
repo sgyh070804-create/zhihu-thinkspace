@@ -4,7 +4,7 @@ import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 // Only runtime assets enter the website. Model sources, screenshots and tests stay out.
 const experiences = {
   bubbles: { root: "thought-bubbles", entry: "demo.html", files: ["demo.html", "dist/"] },
-  debate: { root: "debate-room", entry: "index.html", files: ["index.html", "style.css", "app.js", "engine.mjs", "motion-policy.mjs", "timing.mjs", "scene.js", "kanshan-character.js", "assets/kanshan-reference.jpg", "assets/kanshan/kanshan-runtime.glb", "assets/kanshan/asset-info.json", "vendor/"] },
+  debate: { root: "debate-room", entry: "index.html", files: ["index.html", "style.css", "app.js", "engine.mjs", "api-client.mjs", "motion-policy.mjs", "timing.mjs", "scene.js", "kanshan-character.js", "assets/kanshan-reference.jpg", "assets/kanshan/kanshan-runtime.glb", "assets/kanshan/asset-info.json", "vendor/"] },
 };
 const contentTypes = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json", ".jpg": "image/jpeg", ".png": "image/png", ".glb": "model/gltf-binary" };
 

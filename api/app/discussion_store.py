@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import sqlite3
@@ -67,13 +68,17 @@ EVENT_MESSAGE_CREATED = "message.created"
 # 单条讨论的消息上限：防止误用或刷接口把 SQLite 撑到不可用。
 MAX_MESSAGES_PER_DISCUSSION = int(os.environ.get("THINKSPACE_MAX_MESSAGES", "500"))
 
-# 表结构版本号，写在 `PRAGMA user_version` 里，供启动时判断是否需要迁移。
+# 表结构版本号。存在 schema_migrations 表的 module 列里，而不是 PRAGMA user_version：
+# 后者整个数据库只有一个值，A/B 等模块将来也要用，会互相覆盖。
+SCHEMA_MODULE = "discussions"
 # v2 → v3：事件表增加 payload 列，消息快照在事件里固化，不再回查消息表。
 SCHEMA_VERSION = 3
-
 # 状态时间戳列名白名单。用映射而不是 assert：assert 在 `python -O` 下会被移除，
 # 那样拼进 SQL 的列名就失去了最后一道检查。
 TIMESTAMP_COLUMNS = ("paused_at", "stopped_at", "finished_at")
+
+# SQLite 的 INTEGER 是 64 位有符号；超出范围绑定参数会抛 OverflowError。
+MAX_SQLITE_INT = 2**63 - 1
 
 
 class DiscussionNotFound(Exception):
@@ -98,6 +103,10 @@ class DiscussionStateError(Exception):
 
 class DiscussionQuotaExceeded(Exception):
     """单条讨论的消息数量超过上限。"""
+
+
+class InvalidCursor(ValueError):
+    """分页游标格式非法或超出 SQLite 的取值范围。"""
 
 
 class DiscussionStore:
@@ -201,9 +210,35 @@ class DiscussionStore:
         with condition:
             condition.wait(timeout)
 
+    def _read_schema_version(self, conn: sqlite3.Connection) -> int:
+        row = conn.execute(
+            "SELECT version FROM schema_migrations WHERE module = ?", (SCHEMA_MODULE,)
+        ).fetchone()
+        return int(row["version"]) if row else 0
+
+    def _write_schema_version(self, conn: sqlite3.Connection, version: int) -> None:
+        conn.execute(
+            """INSERT INTO schema_migrations(module, version, applied_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(module) DO UPDATE SET
+                version = excluded.version,
+                applied_at = excluded.applied_at""",
+            (SCHEMA_MODULE, version, int(time.time())),
+        )
+
     def _init_schema(self) -> None:
         with self._connection() as conn:
-            version = conn.execute("PRAGMA user_version").fetchone()[0]
+            # 先确保版本表存在，才能读出本模块的版本。
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    module TEXT PRIMARY KEY,
+                    version INTEGER NOT NULL,
+                    applied_at INTEGER NOT NULL
+                );
+                """
+            )
+            version = self._read_schema_version(conn)
             if version == SCHEMA_VERSION:
                 return
             if version > SCHEMA_VERSION:
@@ -281,8 +316,9 @@ class DiscussionStore:
                 );
                 """
             )
-            # PRAGMA 不能用占位符绑定，这里拼的是代码内常量。
-            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            self._write_schema_version(conn, SCHEMA_VERSION)
+            # _connection() 不管理事务，INSERT 必须显式提交，否则 close 时会被回滚。
+            conn.commit()
 
     def _migrate_legacy_schema(self, conn: sqlite3.Connection) -> None:
         """开发期结构迁移。
@@ -456,23 +492,62 @@ class DiscussionStore:
         result["participants"] = [dict(item) for item in participants]
         return result
 
-    def list_discussions(
-        self, user_id: str, limit: int = 20, offset: int = 0
-    ) -> tuple[list[dict], int]:
-        """按创建时间倒序分页；同一秒内用 rowid 兜底，保证分页不会抖动。
+    @staticmethod
+    def _encode_cursor(created_at: int, rowid: int) -> str:
+        """把「创建时间 + rowid」编成不透明游标，前端不需要理解内部结构。"""
+        raw = f"{created_at}:{rowid}".encode()
+        return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
-        列表也带在座角色，否则前端要为每条讨论再请求一次详情（典型 N+1）。
-        角色用一条 IN 查询批量取出，不随讨论数量线性增长。
+    @staticmethod
+    def _decode_cursor(cursor: str) -> tuple[int, int]:
+        """解析游标。格式不对或超出 64 位范围时抛 InvalidCursor。
+
+        不做「静默回退第一页」：那样客户端会反复拿到同一页，很难发现是自己传错了。
         """
-        with self._connection() as conn:
+        try:
+            padded = cursor + "=" * (-len(cursor) % 4)
+            created_at, rowid = base64.urlsafe_b64decode(padded.encode()).decode().split(":")
+            created_at, rowid = int(created_at), int(rowid)
+        except Exception as exc:
+            raise InvalidCursor("游标格式不正确，请使用上一页返回的 next_cursor。") from exc
+        if not (0 <= created_at <= MAX_SQLITE_INT and 0 <= rowid <= MAX_SQLITE_INT):
+            raise InvalidCursor("游标超出取值范围。")
+        return created_at, rowid
+
+    def list_discussions(
+        self, user_id: str, limit: int = 20, offset: int = 0, cursor: str | None = None
+    ) -> tuple[list[dict], int, str | None]:
+        """按创建时间倒序分页，返回 (列表, 总数, 下一页游标)。
+
+        **优先用 keyset 游标**：`WHERE (created_at, rowid) < 上一页末尾`。
+        OFFSET 分页在翻页期间有人新建讨论时会重复或漏项，这里只保留它做兼容。
+
+        总数和列表放在同一个读快照里，避免「total 是新的、列表是旧的」这种撕裂。
+        """
+        # 只有 None 表示「没传游标」；空字符串是传错了，交给 _decode_cursor 拒绝。
+        anchor = self._decode_cursor(cursor) if cursor is not None else None
+        with self._read_snapshot() as conn:
             total = conn.execute(
                 "SELECT COUNT(*) AS count FROM discussions WHERE user_id = ?", (user_id,)
             ).fetchone()["count"]
-            rows = conn.execute(
-                """SELECT * FROM discussions WHERE user_id = ?
-                ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?""",
-                (user_id, limit, offset),
-            ).fetchall()
+            if anchor is None:
+                rows = conn.execute(
+                    """SELECT *, rowid AS _rowid FROM discussions WHERE user_id = ?
+                    ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?""",
+                    (user_id, limit + 1, offset),
+                ).fetchall()
+            else:
+                anchor_created_at, anchor_rowid = anchor
+                rows = conn.execute(
+                    """SELECT *, rowid AS _rowid FROM discussions
+                    WHERE user_id = ?
+                      AND (created_at < ? OR (created_at = ? AND rowid < ?))
+                    ORDER BY created_at DESC, rowid DESC LIMIT ?""",
+                    (user_id, anchor_created_at, anchor_created_at, anchor_rowid, limit + 1),
+                ).fetchall()
+
+            has_more = len(rows) > limit
+            rows = rows[:limit]
             items = [self._discussion_row(row) for row in rows]
             for item in items:
                 item["participants"] = []
@@ -498,7 +573,12 @@ class DiscussionStore:
                     )
                 for item in items:
                     item["participants"] = grouped[item["id"]]
-        return items, int(total)
+
+        next_cursor = None
+        if has_more and rows:
+            last = rows[-1]
+            next_cursor = self._encode_cursor(int(last["created_at"]), int(last["_rowid"]))
+        return items, int(total), next_cursor
 
     def _transition(
         self,

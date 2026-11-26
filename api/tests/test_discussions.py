@@ -130,14 +130,142 @@ def test_list_discussions_pagination(client: TestClient) -> None:
     assert first_page["total"] == 3
     assert len(first_page["items"]) == 2
     assert first_page["has_more"] is True
+    assert first_page["next_cursor"], "还有更多时应返回游标"
 
-    second_page = client.get("/api/discussions", params={"limit": 2, "offset": 2}).json()
+    second_page = client.get(
+        "/api/discussions", params={"limit": 2, "cursor": first_page["next_cursor"]}
+    ).json()
     assert len(second_page["items"]) == 1
     assert second_page["has_more"] is False
+    assert second_page["next_cursor"] is None
     assert second_page["items"][0]["topic"] == "话题 0", "按创建时间倒序，最早的在最后"
+
+    # offset 仍然可用，兼容旧调用
+    legacy = client.get("/api/discussions", params={"limit": 2, "offset": 2}).json()
+    assert [item["id"] for item in legacy["items"]] == [
+        item["id"] for item in second_page["items"]
+    ]
 
     assert client.get("/api/discussions", params={"limit": 0}).status_code == 422
     assert client.get("/api/discussions", params={"limit": 101}).status_code == 422
+
+
+def test_cursor_pagination_returns_every_item_exactly_once(client: TestClient) -> None:
+    """走完所有页，ID 序列必须和一次性读取完全一致：不重、不漏、顺序相同。
+
+    只断言「两页不重复」是不够的——第二页返回空列表也能通过。
+    """
+    login_demo(client)
+    for index in range(7):
+        new_discussion(client, topic=f"项目 {index}")
+
+    expected = [
+        item["id"]
+        for item in client.get("/api/discussions", params={"limit": 100}).json()["items"]
+    ]
+    assert len(expected) == 7
+
+    collected, cursor, pages = [], None, 0
+    while True:
+        params = {"limit": 2}
+        if cursor:
+            params["cursor"] = cursor
+        data = client.get("/api/discussions", params=params).json()
+        collected += [item["id"] for item in data["items"]]
+        pages += 1
+        assert pages < 20, "翻页次数异常，可能游标没有推进"
+        cursor = data["next_cursor"]
+        if not cursor:
+            break
+
+    assert collected == expected, "完整翻页应与一次性读取得到相同序列"
+    assert len(set(collected)) == 7
+
+
+def test_invalid_cursor_is_rejected_not_silently_reset(client: TestClient) -> None:
+    """游标非法时返回 422，不能静默回退第一页——否则客户端会一直翻同一页。"""
+    import base64
+
+    login_demo(client)
+    new_discussion(client)
+
+    def encode(raw: str) -> str:
+        return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+    bad_cursors = [
+        "not-a-cursor",
+        "",
+        encode("abc"),
+        encode("1:2:3"),
+        encode(f"{2**63}:0"),      # 超出 SQLite INTEGER
+        encode("-1:0"),             # 负数
+    ]
+    for bad in bad_cursors:
+        response = client.get("/api/discussions", params={"cursor": bad})
+        assert response.status_code == 422, f"游标 {bad!r} 应被拒绝"
+        assert response.json()["detail"]["code"] == "INVALID_CURSOR"
+
+
+def test_legacy_database_with_data_is_upgraded_in_place(tmp_path: Path) -> None:
+    """已有数据、没有 schema_migrations 记录的旧库：数据保留，只补写版本。"""
+    path = str(tmp_path / "legacy-v3.db")
+    legacy = Store(path, "test-secret")
+    _, user_id = legacy.create_session(demo=True)
+
+    store = DiscussionStore(path)
+    discussion = store.create_discussion(user_id, "旧库里的讨论")
+
+    # 模拟旧版库：没有 schema_migrations 记录，只有全局 user_version
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute("DELETE FROM schema_migrations")
+        connection.execute("PRAGMA user_version = 3")
+        connection.commit()
+    finally:
+        connection.close()
+
+    reopened = DiscussionStore(path)
+    kept = reopened.get_discussion(user_id, discussion["id"])
+    assert kept is not None, "升级不应清掉已有数据"
+    assert kept["topic"] == "旧库里的讨论"
+
+    connection = sqlite3.connect(path)
+    try:
+        row = connection.execute(
+            "SELECT version FROM schema_migrations WHERE module = 'discussions'"
+        ).fetchone()
+    finally:
+        connection.close()
+    assert row is not None and row[0] == 3
+
+
+def test_list_pagination_is_stable_when_new_discussion_inserted(
+    client: TestClient,
+) -> None:
+    """翻页期间有人新建讨论时，游标分页不应重复或漏项。
+
+    这正是 OFFSET 分页的问题：新记录插到最前面，第二页的 OFFSET 会整体后移一位，
+    导致原来第二页的第一条被跳过。
+    """
+    login_demo(client)
+    for index in range(4):
+        new_discussion(client, topic=f"原有 {index}")
+
+    first_page = client.get("/api/discussions", params={"limit": 2}).json()
+    first_ids = [item["id"] for item in first_page["items"]]
+    assert first_page["next_cursor"]
+
+    # 在第一页和第二页之间插入一条新讨论（会排到列表最前面）
+    new_discussion(client, topic="插队的新讨论")
+
+    second_page = client.get(
+        "/api/discussions", params={"limit": 2, "cursor": first_page["next_cursor"]}
+    ).json()
+    second_ids = [item["id"] for item in second_page["items"]]
+
+    assert not set(first_ids) & set(second_ids), "两页不应出现重复项"
+    topics = [item["topic"] for item in second_page["items"]]
+    assert "插队的新讨论" not in topics, "比游标更新的记录不应出现在后续页"
 
 
 # ---------------- 消息 ----------------
@@ -796,13 +924,20 @@ def test_database_uses_wal_mode(tmp_path: Path) -> None:
 
 
 def test_schema_version_is_recorded(tmp_path: Path) -> None:
+    """版本记在 schema_migrations 表里，按模块分开，不再占用全库唯一的 user_version。"""
     _, store, _ = _prepare_store(tmp_path)
     connection = sqlite3.connect(store.database_path)
     try:
-        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        row = connection.execute(
+            "SELECT version FROM schema_migrations WHERE module = ?",
+            (discussion_store.SCHEMA_MODULE,),
+        ).fetchone()
+        legacy = connection.execute("PRAGMA user_version").fetchone()[0]
     finally:
         connection.close()
-    assert version == discussion_store.SCHEMA_VERSION
+    assert row is not None, "schema_migrations 里应有本模块的记录"
+    assert row[0] == discussion_store.SCHEMA_VERSION
+    assert legacy == 0, "不应再写全局 user_version，避免和别的模块抢"
 
 
 def test_event_payload_is_a_snapshot_not_a_reference(tmp_path: Path) -> None:
